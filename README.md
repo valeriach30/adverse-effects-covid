@@ -4,7 +4,7 @@ Autor: Valeria Chinchilla Mejías
 
 ## Links
 
-- http://localhost:8080/
-- http://localhost:8081/
-- http://localhost:8888/
-- http://localhost:8088/
+Airflow UI: http://localhost:8080 (admin/admin)
+Spark Master UI: http://localhost:8084
+Druid Router: http://localhost:8888
+Superset UI: http://localhost:8088 (admin/admin)

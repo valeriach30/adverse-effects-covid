@@ -1,20 +1,33 @@
-version: "3.9"
+volumes:
+  metadata_data: {}
+  middle_var: {}
+  historical_var: {}
+  broker_var: {}
+  coordinator_var: {}
+  router_var: {}
+  druid_shared: {}
+  shared_data: {} # Volumen compartido para datos entre Spark y Druid
 
 services:
   # --- Postgres (Airflow + Superset + Druid metadata) ---
   postgres:
-    image: "postgres:13"
-    container_name: postgres_vaers
-    environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
+    container_name: postgres
+    image: postgres:latest
     ports:
       - "5432:5432"
+    volumes:
+      - metadata_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    environment:
+      - POSTGRES_PASSWORD=FoolishPassword
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=postgres
     healthcheck:
-      test: [ "CMD", "pg_isready", "-U", "airflow" ]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   # --- Airflow Initialization ---
   airflow-init:
@@ -30,12 +43,13 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__WEBSERVER__SECRET_KEY: unaclavesecretaparaelproyecto
     entrypoint: /bin/bash
-    command: -c "airflow db init && airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin"
+    command: -c "airflow db migrate && airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin"
     restart: "no"
 
-  airflow:
+  # --- Airflow Webserver ---
+  airflow-webserver:
     image: "apache/airflow:2.9.0"
-    container_name: airflow_vaers
+    container_name: airflow_webserver_vaers
     depends_on:
       airflow-init:
         condition: service_completed_successfully
@@ -45,6 +59,7 @@ services:
       - ./dags:/opt/airflow/dags
       - ./spark:/opt/airflow/spark
       - ./data:/opt/airflow/data
+      - shared_data:/opt/shared_data # Datos compartidos entre servicios
     ports:
       - "8080:8080"
     environment:
@@ -54,14 +69,38 @@ services:
     command: "webserver"
     restart: always
 
+  # --- Airflow Scheduler ---
+  airflow-scheduler:
+    image: "apache/airflow:2.9.0"
+    container_name: airflow_scheduler_vaers
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./spark:/opt/airflow/spark
+      - ./data:/opt/airflow/data
+      - shared_data:/opt/shared_data # Datos compartidos entre servicios
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: unaclavesecretaparaelproyecto
+    command: "scheduler"
+    restart: always
+
   # --- Spark Master ---
   spark-master:
     image: "apache/spark:3.5.3"
     container_name: spark_master_vaers
     hostname: spark-master
     ports:
-      - "8081:8080"
-      - "7077:7077"
+      - "8084:8080" # UI Spark Master
+      - "7077:7077" # Puerto Spark Master
+    volumes:
+      - ./data:/opt/spark/data # Datos CSV de entrada
+      - shared_data:/opt/shared_data # Datos procesados de salida
     environment:
       SPARK_MASTER_HOST: spark-master
     command: >
@@ -74,6 +113,9 @@ services:
     container_name: spark_worker_vaers
     depends_on:
       - spark-master
+    volumes:
+      - ./data:/opt/spark/data # Datos CSV de entrada
+      - shared_data:/opt/shared_data # Datos procesados de salida
     environment:
       SPARK_MASTER: spark://spark-master:7077
       SPARK_WORKER_DIR: /opt/spark/work
@@ -82,75 +124,121 @@ services:
       /bin/bash -c "/opt/spark/sbin/start-worker.sh spark://spark-master:7077 && tail -f /dev/null"
     restart: always
 
-  # --- Zookeeper para Druid ---
+  # Need 3.5 or later for container nodes
   zookeeper:
-    image: "zookeeper:3.8"
     container_name: zookeeper
+    image: zookeeper:3.5.10
     ports:
       - "2181:2181"
-    restart: always
+    environment:
+      - ZOO_MY_ID=1
 
-  # --- Druid (Quickstart para pruebas, con emulación amd64) ---
-  druid-coordinator:
-    image: apache/druid:29.0.0
-    container_name: druid-coordinator
+  coordinator:
+    image: apache/druid:34.0.0
+    container_name: coordinator
+    volumes:
+      - druid_shared:/opt/shared
+      - coordinator_var:/opt/druid/var
     depends_on:
       - zookeeper
       - postgres
-    environment:
-      - DRUID_XMX=512m
-      - DRUID_XMS=512m
-      - DRUID_ZK_SERVICE_HOST=zookeeper
-      - DRUID_METADATA_STORAGE_TYPE=postgresql
-      - DRUID_METADATA_STORAGE_CONNECTOR_CONNECTURI=jdbc:postgresql://postgres:5432/airflow
-      - DRUID_METADATA_STORAGE_CONNECTOR_USER=airflow
-      - DRUID_METADATA_STORAGE_CONNECTOR_PASSWORD=airflow
     ports:
-      - "8888:8081"
-    command: [ "coordinator" ]
-    restart: always
+      - "8081:8081"
+    command:
+      - coordinator
+    env_file:
+      - environment
 
-  druid-broker:
-    image: apache/druid:29.0.0
-    container_name: druid-broker
+  broker:
+    image: apache/druid:34.0.0
+    container_name: broker
+    volumes:
+      - broker_var:/opt/druid/var
     depends_on:
       - zookeeper
-      - druid-coordinator
-    environment:
-      - DRUID_XMX=512m
-      - DRUID_XMS=512m
-      - DRUID_ZK_SERVICE_HOST=zookeeper
+      - postgres
+      - coordinator
     ports:
       - "8082:8082"
-    command: [ "broker" ]
-    restart: always
+    command:
+      - broker
+    env_file:
+      - environment
 
-  druid-router:
-    image: apache/druid:29.0.0
-    container_name: druid-router
+  historical:
+    image: apache/druid:34.0.0
+    container_name: historical
+    volumes:
+      - druid_shared:/opt/shared
+      - historical_var:/opt/druid/var
     depends_on:
       - zookeeper
-      - druid-coordinator
-      - druid-broker
-    environment:
-      - DRUID_XMX=512m
-      - DRUID_XMS=512m
-      - DRUID_ZK_SERVICE_HOST=zookeeper
+      - postgres
+      - coordinator
     ports:
-      - "8889:8888"
-    command: [ "router" ]
-    restart: always
+      - "8083:8083"
+    command:
+      - historical
+    env_file:
+      - environment
+
+  middlemanager:
+    image: apache/druid:34.0.0
+    container_name: middlemanager
+    volumes:
+      - druid_shared:/opt/shared
+      - middle_var:/opt/druid/var
+    depends_on:
+      - zookeeper
+      - postgres
+      - coordinator
+    ports:
+      - "8091:8091"
+      - "8100-8105:8100-8105"
+    command:
+      - middleManager
+    env_file:
+      - environment
+
+  router:
+    image: apache/druid:34.0.0
+    container_name: router
+    volumes:
+      - router_var:/opt/druid/var
+    depends_on:
+      - zookeeper
+      - postgres
+      - coordinator
+    ports:
+      - "8888:8888"
+    command:
+      - router
+    env_file:
+      - environment
 
   # --- Superset ---
   superset:
     image: apache/superset:4.0.0
     container_name: superset
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+      broker: # Espera a que Druid esté disponible
+        condition: service_started
     ports:
       - "8088:8088" # UI Superset
     environment:
       SUPERSET_SECRET_KEY: "unaclavesecretaparaSuperset"
+      # Configuración para metadata de Superset en PostgreSQL
+      SUPERSET_CONFIG_PATH: /app/superset_config.py
+    volumes:
+      - ./superset_config.py:/app/superset_config.py:ro # Archivo de configuración personalizado
     command: >
-      /bin/bash -c " superset db upgrade && superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin && superset init && gunicorn --bind 0.0.0.0:8088 'superset.app:create_app()' "
+      /bin/bash -c "
+        sleep 30 &&
+        superset db upgrade &&
+        superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin &&
+        superset init &&
+        gunicorn --bind 0.0.0.0:8088 'superset.app:create_app()'
+      "
     restart: always

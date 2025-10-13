@@ -1,0 +1,84 @@
+version: "3.9"
+
+services:
+  # Base de datos de Airflow
+  postgres:
+    image: "postgres:13"
+    container_name: postgres_vaers
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+
+  # Inicialización de Airflow
+  airflow-init:
+    image: "apache/airflow:2.9.0"
+    container_name: airflow_init_vaers
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./dags:/opt/airflow/dags
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: unaclavesecretaparaelproyecto
+    entrypoint: /bin/bash
+    command: -c "airflow db init && airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin"
+    restart: "no"
+
+  # Airflow webserver
+  airflow:
+    image: "apache/airflow:2.9.0"
+    container_name: airflow_vaers
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./spark:/opt/airflow/spark
+      - ./data:/opt/airflow/data
+    ports:
+      - "8080:8080"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: unaclavesecretaparaelproyecto
+    command: "webserver"
+    restart: always
+
+  # Spark Master
+  spark-master:
+    image: "apache/spark:3.5.3"
+    container_name: spark_master_vaers
+    hostname: spark-master
+    ports:
+      - "8081:8080" # Spark UI
+      - "7077:7077" # Spark Master port
+    environment:
+      SPARK_MASTER_HOST: spark-master
+    command: >
+      /bin/bash -c "/opt/spark/sbin/start-master.sh && tail -f /dev/null"
+    restart: always
+
+  # Spark Worker
+  spark-worker:
+    image: "apache/spark:3.5.3"
+    container_name: spark_worker_vaers
+    depends_on:
+      - spark-master
+    environment:
+      SPARK_MASTER: spark://spark-master:7077
+      SPARK_WORKER_DIR: /opt/spark/work
+      SPARK_LOG_DIR: /opt/spark/logs
+    command: >
+      /bin/bash -c "/opt/spark/sbin/start-worker.sh spark://spark-master:7077 && tail -f /dev/null"
+    restart: always

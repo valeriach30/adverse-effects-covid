@@ -12,7 +12,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "airflow"]
+      test: [ "CMD", "pg_isready", "-U", "airflow" ]
       interval: 5s
       retries: 5
 
@@ -91,22 +91,54 @@ services:
     restart: always
 
   # --- Druid (Quickstart para pruebas, con emulación amd64) ---
-  druid:
+  druid-coordinator:
     image: apache/druid:29.0.0
-    container_name: druid
-    platform: linux/amd64
+    container_name: druid-coordinator
     depends_on:
       - zookeeper
       - postgres
-    ports:
-      - "8888:8888" # UI de Druid
     environment:
-      DRUID_METADATA_STORAGE_TYPE: postgresql
-      DRUID_METADATA_STORAGE_CONNECTOR_CONNECTURI: "jdbc:postgresql://postgres:5432/airflow"
-      DRUID_METADATA_STORAGE_CONNECTOR_USER: airflow
-      DRUID_METADATA_STORAGE_CONNECTOR_PASSWORD: airflow
-      DRUID_ZK_SERVICE_HOST: zookeeper
-    command: nano-quickstart
+      - DRUID_XMX=512m
+      - DRUID_XMS=512m
+      - DRUID_ZK_SERVICE_HOST=zookeeper
+      - DRUID_METADATA_STORAGE_TYPE=postgresql
+      - DRUID_METADATA_STORAGE_CONNECTOR_CONNECTURI=jdbc:postgresql://postgres:5432/airflow
+      - DRUID_METADATA_STORAGE_CONNECTOR_USER=airflow
+      - DRUID_METADATA_STORAGE_CONNECTOR_PASSWORD=airflow
+    ports:
+      - "8888:8081"
+    command: [ "coordinator" ]
+    restart: always
+
+  druid-broker:
+    image: apache/druid:29.0.0
+    container_name: druid-broker
+    depends_on:
+      - zookeeper
+      - druid-coordinator
+    environment:
+      - DRUID_XMX=512m
+      - DRUID_XMS=512m
+      - DRUID_ZK_SERVICE_HOST=zookeeper
+    ports:
+      - "8082:8082"
+    command: [ "broker" ]
+    restart: always
+
+  druid-router:
+    image: apache/druid:29.0.0
+    container_name: druid-router
+    depends_on:
+      - zookeeper
+      - druid-coordinator
+      - druid-broker
+    environment:
+      - DRUID_XMX=512m
+      - DRUID_XMS=512m
+      - DRUID_ZK_SERVICE_HOST=zookeeper
+    ports:
+      - "8889:8888"
+    command: [ "router" ]
     restart: always
 
   # --- Superset ---
@@ -120,10 +152,5 @@ services:
     environment:
       SUPERSET_SECRET_KEY: "unaclavesecretaparaSuperset"
     command: >
-      /bin/bash -c "
-      superset db upgrade &&
-      superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin &&
-      superset init &&
-      gunicorn --bind 0.0.0.0:8088 'superset.app:create_app()'
-      "
+      /bin/bash -c " superset db upgrade && superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin && superset init && gunicorn --bind 0.0.0.0:8088 'superset.app:create_app()' "
     restart: always

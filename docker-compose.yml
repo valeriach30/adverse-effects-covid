@@ -1,7 +1,7 @@
 version: "3.9"
 
 services:
-  # Base de datos de Airflow
+  # --- Postgres (Airflow + Superset + Druid metadata) ---
   postgres:
     image: "postgres:13"
     container_name: postgres_vaers
@@ -16,7 +16,7 @@ services:
       interval: 5s
       retries: 5
 
-  # Inicialización de Airflow
+  # --- Airflow Initialization ---
   airflow-init:
     image: "apache/airflow:2.9.0"
     container_name: airflow_init_vaers
@@ -33,7 +33,6 @@ services:
     command: -c "airflow db init && airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin"
     restart: "no"
 
-  # Airflow webserver
   airflow:
     image: "apache/airflow:2.9.0"
     container_name: airflow_vaers
@@ -55,21 +54,21 @@ services:
     command: "webserver"
     restart: always
 
-  # Spark Master
+  # --- Spark Master ---
   spark-master:
     image: "apache/spark:3.5.3"
     container_name: spark_master_vaers
     hostname: spark-master
     ports:
-      - "8081:8080" # Spark UI
-      - "7077:7077" # Spark Master port
+      - "8081:8080"
+      - "7077:7077"
     environment:
       SPARK_MASTER_HOST: spark-master
     command: >
       /bin/bash -c "/opt/spark/sbin/start-master.sh && tail -f /dev/null"
     restart: always
 
-  # Spark Worker
+  # --- Spark Worker ---
   spark-worker:
     image: "apache/spark:3.5.3"
     container_name: spark_worker_vaers
@@ -81,4 +80,50 @@ services:
       SPARK_LOG_DIR: /opt/spark/logs
     command: >
       /bin/bash -c "/opt/spark/sbin/start-worker.sh spark://spark-master:7077 && tail -f /dev/null"
+    restart: always
+
+  # --- Zookeeper para Druid ---
+  zookeeper:
+    image: "zookeeper:3.8"
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    restart: always
+
+  # --- Druid (Quickstart para pruebas, con emulación amd64) ---
+  druid:
+    image: apache/druid:29.0.0
+    container_name: druid
+    platform: linux/amd64
+    depends_on:
+      - zookeeper
+      - postgres
+    ports:
+      - "8888:8888" # UI de Druid
+    environment:
+      DRUID_METADATA_STORAGE_TYPE: postgresql
+      DRUID_METADATA_STORAGE_CONNECTOR_CONNECTURI: "jdbc:postgresql://postgres:5432/airflow"
+      DRUID_METADATA_STORAGE_CONNECTOR_USER: airflow
+      DRUID_METADATA_STORAGE_CONNECTOR_PASSWORD: airflow
+      DRUID_ZK_SERVICE_HOST: zookeeper
+    command: nano-quickstart
+    restart: always
+
+  # --- Superset ---
+  superset:
+    image: apache/superset:4.0.0
+    container_name: superset
+    depends_on:
+      - postgres
+    ports:
+      - "8088:8088" # UI Superset
+    environment:
+      SUPERSET_SECRET_KEY: "unaclavesecretaparaSuperset"
+    command: >
+      /bin/bash -c "
+      superset db upgrade &&
+      superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin &&
+      superset init &&
+      gunicorn --bind 0.0.0.0:8088 'superset.app:create_app()'
+      "
     restart: always

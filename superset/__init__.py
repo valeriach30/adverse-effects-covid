@@ -1,1 +1,0 @@
-# Módulo de configuración automática de Superset para VAERS

@@ -10,6 +10,7 @@ from airflow.operators.bash_operator import BashOperator
 from airflow.operators.python_operator import PythonOperator
 from airflow.operators.dummy_operator import DummyOperator
 from airflow.sensors.filesystem import FileSensor
+import subprocess
 import os
 
 # Configuración por defecto del DAG
@@ -390,59 +391,59 @@ verify_druid_task = PythonOperator(
 )
 
 def setup_superset_dashboard():
-    """Configurar dashboard automático en Superset - versión simplificada"""
+    """Configurar dashboard completo usando script de integración"""
+    try:
+        # Ejecutar script de integración completo que maneja todo internamente
+        result = subprocess.run([
+            'python3', '/opt/airflow/superset/dag_integration_complete.py'
+        ], capture_output=True, text=True, cwd='/opt/airflow', check=False)
+        
+        if result.returncode == 0:
+            print("✅ Dashboard VAERS completo configurado desde DAG")
+            print("📊 Dashboard automático incluye:")
+            print("   • 📊 Distribución por fabricantes")
+            print("   • 📈 Top síntomas reportados") 
+            print("   • 🏥 Hospitalizaciones por edad")
+            print("   • 🗺️ Distribución geográfica")
+            print("🔗 Dashboard disponible en: http://localhost:8088")
+            
+            # Mostrar resultado del script
+            if result.stdout:
+                print("\n📋 Resultado detallado:")
+                print(result.stdout[-300:])
+        else:
+            print("⚠️ Error configurando dashboard:", result.stderr)
+            if result.stdout:
+                print("Output:", result.stdout)
+            
+    except Exception as e:
+        print(f"❌ Error ejecutando integración dashboard: {str(e)}")
+        raise
+
+def setup_basic_superset_fallback():
+    """Configuración básica de fallback usando script simple"""
+    print("🔄 Fallback: Configuración básica de Superset...")
+    
     import subprocess
     import sys
     
-    print("🎯 Configurando Superset automáticamente...")
-    
     try:
-        # Ejecutar script de integración para DAG
+        # Usar el script básico como fallback
         result = subprocess.run([
             sys.executable, '/opt/airflow/superset/dag_integration.py'
-        ], capture_output=True, text=True, timeout=600)
+        ], capture_output=True, text=True, timeout=300)
         
         if result.returncode == 0:
-            print("✅ Superset configurado exitosamente")
+            print("✅ Configuración básica completada")
             print(result.stdout)
-            return "Superset configurado automáticamente"
+            return "Superset configurado básicamente - datasets disponibles"
         else:
-            print(f"❌ Error en configuración: {result.stderr}")
-            # Intentar configuración básica como fallback
-            return setup_basic_superset_fallback()
+            print(f"⚠️ Fallback también falló: {result.stderr}")
+            return "Error en configuración - verificar manualmente"
             
-    except subprocess.TimeoutExpired:
-        print("⚠️ Timeout en configuración de Superset")
-        return "Timeout en configuración"
     except Exception as e:
-        print(f"❌ Excepción: {str(e)}")
-        return setup_basic_superset_fallback()
-
-def setup_basic_superset_fallback():
-    """Configuración básica de fallback"""
-    print("🔄 Intentando configuración básica de fallback...")
-    
-    # Configuración muy básica usando solo urllib
-    import urllib.request
-    import json
-    import time
-    
-    base_url = "http://superset:8088"
-    
-    # Esperar disponibilidad mínima
-    for i in range(5):
-        try:
-            response = urllib.request.urlopen(f"{base_url}/health", timeout=10)
-            if response.getcode() == 200:
-                print("✅ Superset básico disponible")
-                print(f"🌐 Acceso manual: http://localhost:8088")
-                print(f"🔑 Credenciales: admin / admin")
-                return "Superset disponible - configuración manual requerida"
-        except Exception:
-            pass
-        time.sleep(10)
-    
-    return "Superset no disponible - verificar servicio"
+        print(f"❌ Error en fallback: {str(e)}")
+        return "Error completo - revisar logs de Superset"
 
 # Task 7: Configurar Superset automáticamente 
 setup_superset_task = PythonOperator(

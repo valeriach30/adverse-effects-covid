@@ -72,6 +72,7 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - ./spark:/opt/airflow/spark
+      - ./superset:/opt/airflow/superset
       - ./data:/opt/airflow/data
       - shared_data:/opt/shared_data # Datos compartidos entre servicios
     ports:
@@ -96,6 +97,7 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - ./spark:/opt/airflow/spark
+      - ./superset:/opt/airflow/superset
       - ./data:/opt/airflow/data
       - shared_data:/opt/shared_data # Datos compartidos entre servicios
     environment:

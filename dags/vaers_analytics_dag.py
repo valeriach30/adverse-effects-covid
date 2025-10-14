@@ -389,7 +389,69 @@ verify_druid_task = PythonOperator(
     dag=dag
 )
 
-# Task 7: Generar reporte de resumen
+def setup_superset_dashboard():
+    """Configurar dashboard automático en Superset - versión simplificada"""
+    import subprocess
+    import sys
+    
+    print("🎯 Configurando Superset automáticamente...")
+    
+    try:
+        # Ejecutar script de integración para DAG
+        result = subprocess.run([
+            sys.executable, '/opt/airflow/superset/dag_integration.py'
+        ], capture_output=True, text=True, timeout=600)
+        
+        if result.returncode == 0:
+            print("✅ Superset configurado exitosamente")
+            print(result.stdout)
+            return "Superset configurado automáticamente"
+        else:
+            print(f"❌ Error en configuración: {result.stderr}")
+            # Intentar configuración básica como fallback
+            return setup_basic_superset_fallback()
+            
+    except subprocess.TimeoutExpired:
+        print("⚠️ Timeout en configuración de Superset")
+        return "Timeout en configuración"
+    except Exception as e:
+        print(f"❌ Excepción: {str(e)}")
+        return setup_basic_superset_fallback()
+
+def setup_basic_superset_fallback():
+    """Configuración básica de fallback"""
+    print("🔄 Intentando configuración básica de fallback...")
+    
+    # Configuración muy básica usando solo urllib
+    import urllib.request
+    import json
+    import time
+    
+    base_url = "http://superset:8088"
+    
+    # Esperar disponibilidad mínima
+    for i in range(5):
+        try:
+            response = urllib.request.urlopen(f"{base_url}/health", timeout=10)
+            if response.getcode() == 200:
+                print("✅ Superset básico disponible")
+                print(f"🌐 Acceso manual: http://localhost:8088")
+                print(f"🔑 Credenciales: admin / admin")
+                return "Superset disponible - configuración manual requerida"
+        except Exception:
+            pass
+        time.sleep(10)
+    
+    return "Superset no disponible - verificar servicio"
+
+# Task 7: Configurar Superset automáticamente 
+setup_superset_task = PythonOperator(
+    task_id='setup_superset_dashboard',
+    python_callable=setup_superset_dashboard,
+    dag=dag
+)
+
+# Task 8: Generar reporte de resumen
 generate_report_task = BashOperator(
     task_id='generate_summary_report',
     bash_command="""
@@ -407,7 +469,8 @@ generate_report_task = BashOperator(
     
     echo "🌐 Acceso a dashboards:" >> /tmp/pipeline_report.txt
     echo "   - Druid Console: http://localhost:8888" >> /tmp/pipeline_report.txt
-    echo "   - Superset: http://localhost:8088" >> /tmp/pipeline_report.txt
+    echo "   - Superset Dashboard: http://localhost:8088/dashboard/list/" >> /tmp/pipeline_report.txt
+    echo "   - Credenciales: admin/admin" >> /tmp/pipeline_report.txt
     echo "" >> /tmp/pipeline_report.txt
     
     echo "Fecha de procesamiento: $(date)" >> /tmp/pipeline_report.txt
@@ -424,7 +487,7 @@ end_task = DummyOperator(task_id='end_pipeline', dag=dag)
 # Definir dependencias del pipeline
 start_task >> setup_dirs_task >> check_data_task >> validate_data_task >> spark_etl_task
 spark_etl_task >> prepare_druid_task >> ingest_druid_task >> verify_druid_task
-verify_druid_task >> generate_report_task >> end_task
+verify_druid_task >> setup_superset_task >> generate_report_task >> end_task
 
 # Información del DAG
 dag.doc_md = """

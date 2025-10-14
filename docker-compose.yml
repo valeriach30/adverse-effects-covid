@@ -6,9 +6,23 @@ volumes:
   coordinator_var: {}
   router_var: {}
   druid_shared: {}
-  shared_data: {} # Volumen compartido para datos entre Spark y Druid
+  shared_data: {} # Volumen compartido para datos entre servicios
 
 services:
+  # --- Inicialización de volumen compartido ---
+  volume-init:
+    image: busybox:latest
+    container_name: volume_init_vaers
+    volumes:
+      - shared_data:/opt/shared_data
+    command: >
+      sh -c "
+      mkdir -p /opt/shared_data/vaers_results /opt/shared_data/druid_ingestion_specs &&
+      chmod -R 777 /opt/shared_data &&
+      echo '✅ Volumen compartido inicializado con permisos correctos'
+      "
+    restart: "no"
+
   # --- Postgres (Airflow + Superset + Druid metadata) ---
   postgres:
     container_name: postgres
@@ -23,7 +37,7 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_DB=postgres
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -53,6 +67,8 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+      volume-init:
+        condition: service_completed_successfully
     volumes:
       - ./dags:/opt/airflow/dags
       - ./spark:/opt/airflow/spark
@@ -75,6 +91,8 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+      volume-init:
+        condition: service_completed_successfully
     volumes:
       - ./dags:/opt/airflow/dags
       - ./spark:/opt/airflow/spark
@@ -92,6 +110,9 @@ services:
     image: "apache/spark:3.5.3"
     container_name: spark_master_vaers
     hostname: spark-master
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     ports:
       - "8084:8080" # UI Spark Master
       - "7077:7077" # Puerto Spark Master
@@ -110,6 +131,7 @@ services:
     container_name: spark_worker_vaers
     depends_on:
       - spark-master
+      - volume-init
     volumes:
       - ./data:/opt/spark/data # Datos CSV de entrada
       - shared_data:/opt/shared_data # Datos procesados de salida
@@ -136,6 +158,7 @@ services:
     volumes:
       - druid_shared:/opt/shared
       - coordinator_var:/opt/druid/var
+      - shared_data:/opt/shared_data
     depends_on:
       - zookeeper
       - postgres
@@ -151,10 +174,12 @@ services:
     container_name: broker
     volumes:
       - broker_var:/opt/druid/var
+      - shared_data:/opt/shared_data # Acceso a datos compartidos
     depends_on:
       - zookeeper
       - postgres
       - coordinator
+      - volume-init
     ports:
       - "8082:8082"
     command:
@@ -168,7 +193,9 @@ services:
     volumes:
       - druid_shared:/opt/shared
       - historical_var:/opt/druid/var
+      - shared_data:/opt/shared_data # Acceso a datos compartidos
     depends_on:
+      - volume-init
       - zookeeper
       - postgres
       - coordinator
@@ -185,7 +212,9 @@ services:
     volumes:
       - druid_shared:/opt/shared
       - middle_var:/opt/druid/var
+      - shared_data:/opt/shared_data # Acceso a datos compartidos
     depends_on:
+      - volume-init
       - zookeeper
       - postgres
       - coordinator

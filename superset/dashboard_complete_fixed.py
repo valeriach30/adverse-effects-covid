@@ -13,9 +13,20 @@ from http.cookiejar import CookieJar
 def build_complete_vaers_dashboard():
     """Crear dashboard VAERS completo con todas las visualizaciones"""
     
-    base_url = "http://localhost:8088"
+    # Detectar si estamos corriendo en Docker/Airflow
+    import os
+    if os.path.exists('/opt/airflow') or os.environ.get('AIRFLOW_HOME'):
+        # Ejecutándose desde contenedor Airflow - usar nombre del contenedor
+        base_url = "http://superset:8088"
+        print("🐳 Ejecutándose desde contenedor Docker/Airflow")
+    else:
+        # Ejecutándose desde host local
+        base_url = "http://localhost:8088"
+        print("💻 Ejecutándose desde host local")
+    
     print("🚀 DASHBOARD BUILDER VAERS - VERSION CORREGIDA")
     print("="*55)
+    print(f"🌐 URL Superset: {base_url}")
     
     # Verificar Superset
     print("⏳ Verificando Superset...")
@@ -264,7 +275,8 @@ def build_complete_vaers_dashboard():
                         "label": "Hospitalizaciones"
                     }
                 ],
-                "row_limit": 50
+                "row_limit": 50,
+                "sort_x_axis": "descending",
             })
         }
         print("🏥 Creando gráfico de hospitalizaciones...")
@@ -383,7 +395,7 @@ def build_complete_vaers_dashboard():
             position_json[row_1_id]["children"].append(chart_layout_id)
             position_json[chart_layout_id] = {
                 "type": "CHART", "id": chart_layout_id, "parents": [row_1_id],
-                "meta": {"chartId": chart_ids[0], "width": 6, "height": 400} 
+                "meta": {"chartId": chart_ids[0], "width": 6, "height": 50} 
             }
             
         if len(chart_ids) >= 2: # Gráfico 2 (Síntomas)
@@ -391,7 +403,7 @@ def build_complete_vaers_dashboard():
             position_json[row_1_id]["children"].append(chart_layout_id)
             position_json[chart_layout_id] = {
                 "type": "CHART", "id": chart_layout_id, "parents": [row_1_id],
-                "meta": {"chartId": chart_ids[1], "width": 6, "height": 400}
+                "meta": {"chartId": chart_ids[1], "width": 6, "height": 50}
             }
             
         if len(chart_ids) >= 3: # Gráfico 3 (Hospitalizaciones)
@@ -399,7 +411,7 @@ def build_complete_vaers_dashboard():
             position_json[row_2_id]["children"].append(chart_layout_id)
             position_json[chart_layout_id] = {
                 "type": "CHART", "id": chart_layout_id, "parents": [row_2_id],
-                "meta": {"chartId": chart_ids[2], "width": 6, "height": 400}
+                "meta": {"chartId": chart_ids[2], "width": 6, "height": 50}
             }
             
         if len(chart_ids) >= 4: # Gráfico 4 (Geográfico)
@@ -407,7 +419,7 @@ def build_complete_vaers_dashboard():
             position_json[row_2_id]["children"].append(chart_layout_id)
             position_json[chart_layout_id] = {
                 "type": "CHART", "id": chart_layout_id, "parents": [row_2_id],
-                "meta": {"chartId": chart_ids[3], "width": 6, "height": 400}
+                "meta": {"chartId": chart_ids[3], "width": 6, "height": 50}
             }
         
         # 4. El payload para el PUT 
@@ -419,7 +431,7 @@ def build_complete_vaers_dashboard():
         
         try:
             data = json.dumps(dashboard_update_data).encode('utf-8')
-            req = urllib.request.Request(f"{base_url}/api/vdasboard/{dashboard_id}", data=data, headers=auth_headers)
+            req = urllib.request.Request(f"{base_url}/api/v1/dashboard/{dashboard_id}", data=data, headers=auth_headers)
             req.get_method = lambda: 'PUT' 
             
             with urllib.request.urlopen(req, timeout=30) as response:

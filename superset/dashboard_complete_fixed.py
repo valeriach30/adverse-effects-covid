@@ -113,13 +113,48 @@ def build_complete_vaers_dashboard():
         print(f"❌ Error verificando datasets: {str(e)}")
         return False
     
-    # CREAR GRÁFICOS COMPLETOS
-    print("\n📈 CREANDO GRÁFICOS VAERS...")
+    # ===================================================================
+    # PASO 1: CREAR EL DASHBOARD (VACÍO) PRIMERO
+    # ===================================================================
+    print("\n🎯 PASO 1: CREANDO DASHBOARD BASE...")
+    dashboard_id = None
+    dashboard_title = "📊 VAERS COVID-19 - Dashboard Completo Automatizado"
+    
+    dashboard_create_data = {
+        "dashboard_title": dashboard_title,
+        "published": True
+    }
+    
+    try:
+        data = json.dumps(dashboard_create_data).encode('utf-8')
+        req = urllib.request.Request(f"{base_url}/api/v1/dashboard/", data=data, headers=auth_headers)
+        req.get_method = lambda: 'POST'
+        
+        with urllib.request.urlopen(req, timeout=30) as response:
+            if response.getcode() == 201:
+                dashboard_result = json.loads(response.read().decode('utf-8'))
+                dashboard_id = dashboard_result.get("id")
+                print(f"   ✅ Dashboard base creado (ID: {dashboard_id})")
+            else:
+                print(f"   ❌ Error HTTP {response.getcode()} creando dashboard base")
+    except Exception as e:
+        print(f"   ❌ Error creando dashboard base: {str(e)}")
+        return False
+
+    # Si falló la creación del dashboard, salimos
+    if not dashboard_id:
+        print("❌ No se pudo crear el dashboard. Abortando.")
+        return False
+
+    # ===================================================================
+    # PASO 2: CREAR GRÁFICOS Y ASOCIARLOS AL DASHBOARD
+    # ===================================================================
+    print("\n📈 PASO 2: CREANDO GRÁFICOS VAERS...")
     print("="*40)
     
     chart_ids = []
-
-    # 1. Reportes por Fabricante de Vacuna
+    
+    # 1. Gráfico de Fabricantes
     if "vaers_symptoms_by_manufacturer" in datasets_info:
         dataset_id = datasets_info["vaers_symptoms_by_manufacturer"]
         
@@ -128,17 +163,14 @@ def build_complete_vaers_dashboard():
             "datasource_id": dataset_id,
             "datasource_type": "table",
             "viz_type": "pie",
+            "dashboards": [dashboard_id],
             "params": json.dumps({
                 "datasource": f"{dataset_id}__table",
                 "viz_type": "pie",
                 "groupby": ["VAX_MANU_CLEAN"],
-                
-                "metric": {
+                "metric": { 
                     "aggregate": "SUM",
-                    "column": {
-                        "column_name": "total_reports",
-                        "type": "BIGINT"
-                    },
+                    "column": {"column_name": "total_reports", "type": "BIGINT"},
                     "expressionType": "SIMPLE",
                     "label": "Total Reportes",
                     "hasCustomLabel": True
@@ -161,10 +193,10 @@ def build_complete_vaers_dashboard():
                     chart_result = json.loads(response.read().decode('utf-8'))
                     chart_id = chart_result.get("id")
                     chart_ids.append(chart_id)
-                    print(f"   ✅ Gráfico fabricantes creado (ID: {chart_id})")
+                    print(f"   ✅ Gráfico fabricantes creado y asociado (ID: {chart_id})")
                 else:
-                    error_body = response.read().decode('utf-8')
-                    print(f"   ❌ Error HTTP {response.getcode()}: {error_body}")
+                    print(f"   ❌ Error HTTP {response.getcode()}")
+                    
         except Exception as e:
             print(f"   ❌ Error: {str(e)}")
     
@@ -177,6 +209,7 @@ def build_complete_vaers_dashboard():
             "datasource_id": dataset_id,
             "datasource_type": "table", 
             "viz_type": "dist_bar",
+            "dashboards": [dashboard_id],
             "params": json.dumps({
                 "datasource": f"{dataset_id}__table",
                 "viz_type": "dist_bar",
@@ -184,10 +217,7 @@ def build_complete_vaers_dashboard():
                 "metrics": [
                     {
                         "aggregate": "SUM",
-                        "column": {
-                            "column_name": "total_reports",
-                            "type": "BIGINT"
-                        },
+                        "column": {"column_name": "total_reports", "type": "BIGINT"},
                         "expressionType": "SIMPLE",
                         "label": "Total Reportes"
                     }
@@ -198,35 +228,30 @@ def build_complete_vaers_dashboard():
                 "color_scheme": "supersetColors"
             })
         }
-
         
         print("📈 Creando gráfico de síntomas...")
         try:
             data = json.dumps(chart_config).encode('utf-8')
             req = urllib.request.Request(f"{base_url}/api/v1/chart/", data=data, headers=auth_headers)
             req.get_method = lambda: 'POST'
-            
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.getcode() == 201:
                     chart_result = json.loads(response.read().decode('utf-8'))
                     chart_id = chart_result.get("id")
                     chart_ids.append(chart_id)
-                    print(f"   ✅ Gráfico síntomas creado (ID: {chart_id})")
-                else:
-                    print(f"   ❌ Error HTTP {response.getcode()}")
-                    
+                    print(f"   ✅ Gráfico síntomas creado y asociado (ID: {chart_id})")
         except Exception as e:
             print(f"   ❌ Error: {str(e)}")
-    
+
     # 3. Gráfico de Hospitalizaciones por Edad
     if "vaers_severity_by_age" in datasets_info:
         dataset_id = datasets_info["vaers_severity_by_age"]
-        
         chart_config = {
             "slice_name": "🏥 Hospitalizaciones por Grupo de Edad",
             "datasource_id": dataset_id,
             "datasource_type": "table",
             "viz_type": "dist_bar",
+            "dashboards": [dashboard_id],
             "params": json.dumps({
                 "datasource": f"{dataset_id}__table",
                 "viz_type": "dist_bar", 
@@ -234,48 +259,37 @@ def build_complete_vaers_dashboard():
                 "metrics": [
                     {
                         "aggregate": "SUM",
-                        "column": {
-                            "column_name": "hospitalizations",
-                            "type": "BIGINT"
-                        },
+                        "column": {"column_name": "hospitalizations", "type": "BIGINT"},
                         "expressionType": "SIMPLE",
                         "label": "Hospitalizaciones"
                     }
                 ],
-                "adhoc_filters": [],
-                "row_limit": 50,
-                "order_desc": True,
-                "color_scheme": "supersetColors"
+                "row_limit": 50
             })
         }
-        
         print("🏥 Creando gráfico de hospitalizaciones...")
         try:
             data = json.dumps(chart_config).encode('utf-8')
             req = urllib.request.Request(f"{base_url}/api/v1/chart/", data=data, headers=auth_headers)
             req.get_method = lambda: 'POST'
-            
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.getcode() == 201:
                     chart_result = json.loads(response.read().decode('utf-8'))
                     chart_id = chart_result.get("id")
                     chart_ids.append(chart_id)
-                    print(f"   ✅ Gráfico hospitalizaciones creado (ID: {chart_id})")
-                else:
-                    print(f"   ❌ Error HTTP {response.getcode()}")
-                    
+                    print(f"   ✅ Gráfico hospitalizaciones creado y asociado (ID: {chart_id})")
         except Exception as e:
             print(f"   ❌ Error: {str(e)}")
     
     # 4. Mapa de Estados (Distribución Geográfica)
     if "vaers_geographic_distribution" in datasets_info:
         dataset_id = datasets_info["vaers_geographic_distribution"]
-        
         chart_config = {
             "slice_name": "🗺️ Distribución Geográfica por Estado",
             "datasource_id": dataset_id,
             "datasource_type": "table",
             "viz_type": "dist_bar",
+            "dashboards": [dashboard_id],
             "params": json.dumps({
                 "datasource": f"{dataset_id}__table",
                 "viz_type": "dist_bar",
@@ -283,97 +297,144 @@ def build_complete_vaers_dashboard():
                 "metrics": [
                     {
                         "aggregate": "SUM", 
-                        "column": {
-                            "column_name": "total_reports",
-                            "type": "BIGINT"
-                        },
+                        "column": {"column_name": "total_reports", "type": "BIGINT"},
                         "expressionType": "SIMPLE",
                         "label": "Total Reportes"
                     }
                 ],
-                "adhoc_filters": [],
-                "row_limit": 20,
-                "order_desc": True,
-                "color_scheme": "supersetColors"
+                "row_limit": 20
             })
         }
-        
         print("🗺️ Creando gráfico geográfico...")
         try:
             data = json.dumps(chart_config).encode('utf-8')
             req = urllib.request.Request(f"{base_url}/api/v1/chart/", data=data, headers=auth_headers)
             req.get_method = lambda: 'POST'
-            
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.getcode() == 201:
                     chart_result = json.loads(response.read().decode('utf-8'))
                     chart_id = chart_result.get("id")
                     chart_ids.append(chart_id)
-                    print(f"   ✅ Gráfico geográfico creado (ID: {chart_id})")
-                else:
-                    print(f"   ❌ Error HTTP {response.getcode()}")
-                    
+                    print(f"   ✅ Gráfico geográfico creado y asociado (ID: {chart_id})")
         except Exception as e:
             print(f"   ❌ Error: {str(e)}")
-    
-    # CREAR DASHBOARD COMPLETO
-    if chart_ids:
-        print(f"\n🎯 CREANDO DASHBOARD CON {len(chart_ids)} GRÁFICOS...")
-        print("="*50)
+
+    # ===================================================================
+    # PASO 3: ACTUALIZAR EL DASHBOARD CON EL LAYOUT (position_json)
+    # ===================================================================
+    if chart_ids and dashboard_id: 
+        print(f"\n🎨 PASO 3: APLICANDO LAYOUT FINAL AL DASHBOARD {dashboard_id}...")
         
-        # Layout con posiciones específicas
-        position_json = {}
-        
-        # Organizar gráficos en grid 2x2
-        positions = [
-            {"x": 0, "y": 0, "w": 6, "h": 8},   # Fabricantes (arriba izquierda)
-            {"x": 6, "y": 0, "w": 6, "h": 8},   # Síntomas (arriba derecha)  
-            {"x": 0, "y": 8, "w": 6, "h": 8},   # Hospitalizaciones (abajo izquierda)
-            {"x": 6, "y": 8, "w": 6, "h": 8}    # Geográfico (abajo derecha)
-        ]
-        
-        for i, chart_id in enumerate(chart_ids):
-            if i < len(positions):
-                pos = positions[i]
-                position_json[f"CHART-{chart_id}"] = {
-                    "children": [],
-                    "id": f"CHART-{chart_id}",
-                    "meta": {
-                        "chartId": chart_id,
-                        "width": pos["w"],
-                        "height": pos["h"]
-                    },
-                    "parents": ["ROOT_ID"],
-                    "type": "CHART",
-                    "x": pos["x"],
-                    "y": pos["y"],
-                    "w": pos["w"], 
-                    "h": pos["h"]
+        # 1. Definir IDs
+        root_id = "ROOT_ID"
+        tabs_id = "TABS_ID"
+        tab_id = "TAB_ID_1"
+        row_1_id = "ROW_ID_1"
+        row_2_id = "ROW_ID_2" 
+
+        # 2. Inicializar el position_json
+        position_json = {
+            root_id: {
+                "type": "ROOT",
+                "id": root_id,
+                "children": [tabs_id]
+            },
+            tabs_id: {
+                "type": "TABS",
+                "id": tabs_id,
+                "parents": [root_id],
+                "children": [tab_id]
+            },
+            tab_id: {
+                "type": "TAB",
+                "id": tab_id,
+                "parents": [tabs_id],
+                "meta": {
+                    "text": "Pestaña 1",
+                    "background": "BACKGROUND_TRANSPARENT"
+                },
+                "children": [row_1_id, row_2_id] 
+            },
+            
+            row_1_id: {
+                "type": "ROW",
+                "id": row_1_id,
+                "parents": [tab_id],
+                "children": [], # se llenará con gráficos 1 y 2
+                "meta": {
+                    "background": "BACKGROUND_TRANSPARENT"
                 }
+            },
+            row_2_id: {
+                "type": "ROW",
+                "id": row_2_id,
+                "parents": [tab_id],
+                "children": [], # se llenará con gráficos 3 y 4
+                "meta": {
+                    "background": "BACKGROUND_TRANSPARENT"
+                }
+            }
+        }
         
-        dashboard_data = {
-            "dashboard_title": "📊 VAERS COVID-19 - Dashboard Completo Automatizado",
+        # 3. Mapear los chart_ids (Esta lógica estaba perfecta)
+        
+        if len(chart_ids) >= 1: # Gráfico 1 (Fabricantes)
+            chart_layout_id = f"CHART-{chart_ids[0]}"
+            position_json[row_1_id]["children"].append(chart_layout_id)
+            position_json[chart_layout_id] = {
+                "type": "CHART", "id": chart_layout_id, "parents": [row_1_id],
+                "meta": {"chartId": chart_ids[0], "width": 6, "height": 400} 
+            }
+            
+        if len(chart_ids) >= 2: # Gráfico 2 (Síntomas)
+            chart_layout_id = f"CHART-{chart_ids[1]}"
+            position_json[row_1_id]["children"].append(chart_layout_id)
+            position_json[chart_layout_id] = {
+                "type": "CHART", "id": chart_layout_id, "parents": [row_1_id],
+                "meta": {"chartId": chart_ids[1], "width": 6, "height": 400}
+            }
+            
+        if len(chart_ids) >= 3: # Gráfico 3 (Hospitalizaciones)
+            chart_layout_id = f"CHART-{chart_ids[2]}"
+            position_json[row_2_id]["children"].append(chart_layout_id)
+            position_json[chart_layout_id] = {
+                "type": "CHART", "id": chart_layout_id, "parents": [row_2_id],
+                "meta": {"chartId": chart_ids[2], "width": 6, "height": 400}
+            }
+            
+        if len(chart_ids) >= 4: # Gráfico 4 (Geográfico)
+            chart_layout_id = f"CHART-{chart_ids[3]}"
+            position_json[row_2_id]["children"].append(chart_layout_id)
+            position_json[chart_layout_id] = {
+                "type": "CHART", "id": chart_layout_id, "parents": [row_2_id],
+                "meta": {"chartId": chart_ids[3], "width": 6, "height": 400}
+            }
+        
+        # 4. El payload para el PUT 
+        dashboard_update_data = {
+            "dashboard_title": dashboard_title,
             "published": True,
             "position_json": json.dumps(position_json)
         }
         
         try:
-            data = json.dumps(dashboard_data).encode('utf-8')
-            req = urllib.request.Request(f"{base_url}/api/v1/dashboard/", data=data, headers=auth_headers)
-            req.get_method = lambda: 'POST'
+            data = json.dumps(dashboard_update_data).encode('utf-8')
+            req = urllib.request.Request(f"{base_url}/api/vdasboard/{dashboard_id}", data=data, headers=auth_headers)
+            req.get_method = lambda: 'PUT' 
             
             with urllib.request.urlopen(req, timeout=30) as response:
-                if response.getcode() == 201:
-                    dashboard_result = json.loads(response.read().decode('utf-8'))
-                    dashboard_id = dashboard_result.get("id")
-                    print(f"✅ DASHBOARD CREADO EXITOSAMENTE! (ID: {dashboard_id})")
+                if response.getcode() == 200: 
+                    print(f"   ✅ Layout aplicado exitosamente!")
                     print(f"🔗 URL: {base_url}/superset/dashboard/{dashboard_id}/")
                 else:
-                    print(f"❌ Error HTTP {response.getcode()} creando dashboard")
+                    print(f"   ❌ Error HTTP {response.getcode()} aplicando layout")
                     
+        except urllib.error.HTTPError as e:
+            error_message = e.read().decode('utf-8')
+            print(f"   ❌ Error HTTPError (Paso 3): {e.code} - {error_message}")
         except Exception as e:
-            print(f"❌ Error creando dashboard: {str(e)}")
-    
+            print(f"   ❌ Error (Paso 3): {str(e)}")
+
     # RESUMEN FINAL
     print("\n" + "🎉" + "="*53 + "🎉")
     print("           DASHBOARD VAERS COMPLETO FINALIZADO")

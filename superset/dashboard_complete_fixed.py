@@ -118,8 +118,8 @@ def build_complete_vaers_dashboard():
     print("="*40)
     
     chart_ids = []
-    
-    # 1. Gráfico de Fabricantes (usando dataset síntomas)
+
+    # 1. Reportes por Fabricante de Vacuna
     if "vaers_symptoms_by_manufacturer" in datasets_info:
         dataset_id = datasets_info["vaers_symptoms_by_manufacturer"]
         
@@ -132,23 +132,24 @@ def build_complete_vaers_dashboard():
                 "datasource": f"{dataset_id}__table",
                 "viz_type": "pie",
                 "groupby": ["VAX_MANU_CLEAN"],
-                "metrics": [
-                    {
-                        "aggregate": "SUM",
-                        "column": {
-                            "column_name": "total_reports",
-                            "type": "BIGINT"
-                        },
-                        "expressionType": "SIMPLE",
-                        "label": "Total Reportes"
-                    }
-                ],
+                
+                "metric": {
+                    "aggregate": "SUM",
+                    "column": {
+                        "column_name": "total_reports",
+                        "type": "BIGINT"
+                    },
+                    "expressionType": "SIMPLE",
+                    "label": "Total Reportes",
+                    "hasCustomLabel": True
+                },
                 "adhoc_filters": [],
                 "row_limit": 10000,
-                "color_scheme": "supersetColors"
+                "color_scheme": "supersetColors",
+                "sort_by_metric": True
             })
         }
-        
+
         print("📊 Creando gráfico de fabricantes...")
         try:
             data = json.dumps(chart_config).encode('utf-8')
@@ -162,8 +163,8 @@ def build_complete_vaers_dashboard():
                     chart_ids.append(chart_id)
                     print(f"   ✅ Gráfico fabricantes creado (ID: {chart_id})")
                 else:
-                    print(f"   ❌ Error HTTP {response.getcode()}")
-                    
+                    error_body = response.read().decode('utf-8')
+                    print(f"   ❌ Error HTTP {response.getcode()}: {error_body}")
         except Exception as e:
             print(f"   ❌ Error: {str(e)}")
     
@@ -197,6 +198,7 @@ def build_complete_vaers_dashboard():
                 "color_scheme": "supersetColors"
             })
         }
+
         
         print("📈 Creando gráfico de síntomas...")
         try:

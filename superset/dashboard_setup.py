@@ -165,9 +165,9 @@ def build_complete_vaers_dashboard():
     
     chart_ids = []
     
-    # 1. Gráfico de Fabricantes
-    if "vaers_symptoms_by_manufacturer" in datasets_info:
-        dataset_id = datasets_info["vaers_symptoms_by_manufacturer"]
+        # 1. Chart: Distribución por Fabricante (PIE)
+    if "vaers_symptoms_analysis" in datasets_info:
+        dataset_id = datasets_info["vaers_symptoms_analysis"]
         
         chart_config = {
             "slice_name": "📊 Reportes por Fabricante de Vacuna",
@@ -176,9 +176,8 @@ def build_complete_vaers_dashboard():
             "viz_type": "pie",
             "dashboards": [dashboard_id],
             "params": json.dumps({
-                "datasource": f"{dataset_id}__table",
                 "viz_type": "pie",
-                "groupby": ["VAX_MANU_CLEAN"],
+                "groupby": ["manufacturer"],
                 "metric": { 
                     "aggregate": "SUM",
                     "column": {"column_name": "total_reports", "type": "BIGINT"},
@@ -212,8 +211,8 @@ def build_complete_vaers_dashboard():
             print(f"   ❌ Error: {str(e)}")
     
     # 2. Gráfico de Top Síntomas
-    if "vaers_symptoms_by_manufacturer" in datasets_info:
-        dataset_id = datasets_info["vaers_symptoms_by_manufacturer"]
+    if "vaers_symptoms_analysis" in datasets_info:
+        dataset_id = datasets_info["vaers_symptoms_analysis"]
         
         chart_config = {
             "slice_name": "📈 Top 15 Síntomas Más Reportados",
@@ -222,9 +221,8 @@ def build_complete_vaers_dashboard():
             "viz_type": "dist_bar",
             "dashboards": [dashboard_id],
             "params": json.dumps({
-                "datasource": f"{dataset_id}__table",
                 "viz_type": "dist_bar",
-                "groupby": ["symptom_name"],
+                "groupby": ["symptom"],
                 "metrics": [
                     {
                         "aggregate": "SUM",
@@ -254,9 +252,9 @@ def build_complete_vaers_dashboard():
         except Exception as e:
             print(f"   ❌ Error: {str(e)}")
 
-    # 3. Gráfico de Hospitalizaciones por Edad
-    if "vaers_severity_by_age" in datasets_info:
-        dataset_id = datasets_info["vaers_severity_by_age"]
+    # 3. Gráfico de Hospitalizaciones por Edad  
+    if "vaers_severity_analysis" in datasets_info:
+        dataset_id = datasets_info["vaers_severity_analysis"]
         chart_config = {
             "slice_name": "🏥 Hospitalizaciones por Grupo de Edad",
             "datasource_id": dataset_id,
@@ -264,7 +262,6 @@ def build_complete_vaers_dashboard():
             "viz_type": "dist_bar",
             "dashboards": [dashboard_id],
             "params": json.dumps({
-                "datasource": f"{dataset_id}__table",
                 "viz_type": "dist_bar", 
                 "groupby": ["age_group"],
                 "metrics": [
@@ -294,8 +291,8 @@ def build_complete_vaers_dashboard():
             print(f"   ❌ Error: {str(e)}")
     
     # 4. Mapa de Estados (Distribución Geográfica)
-    if "vaers_geographic_distribution" in datasets_info:
-        dataset_id = datasets_info["vaers_geographic_distribution"]
+    if "vaers_geographic_analysis" in datasets_info:
+        dataset_id = datasets_info["vaers_geographic_analysis"]
         chart_config = {
             "slice_name": "🗺️ Distribución Geográfica por Estado",
             "datasource_id": dataset_id,
@@ -303,7 +300,6 @@ def build_complete_vaers_dashboard():
             "viz_type": "dist_bar",
             "dashboards": [dashboard_id],
             "params": json.dumps({
-                "datasource": f"{dataset_id}__table",
                 "viz_type": "dist_bar",
                 "groupby": ["state"],
                 "metrics": [

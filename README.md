@@ -1,83 +1,161 @@
-# 📊 Análisis de Efectos Adversos COVID-19 (VAERS)
+# Análisis de Efectos Adversos COVID-19 (VAERS)
 
 **Autor: Valeria Chinchilla Mejías**
 
-Pipeline completo de análisis de datos del sistema VAERS usando Apache Airflow, Spark, Druid y Superset.
-
-## 🏗️ Arquitectura del Sistema
+## 📊 Arquitectura del Pipeline
 
 ```
-📁 Datos CSV VAERS → ⚡ Spark (ETL) → 🗄️ Druid → 📊 Superset → 👥 Usuarios
-                           ↑
-                   🚁 Airflow (orquestación)
+📊 CSV → 🐻‍❄️ Polars ETL → 🐲 Druid + 🗄️ PostgreSQL → 📈 Superset
 ```
 
-## 📋 Análisis Implementados
+Este proyecto implementa un pipeline de análisis de datos VAERS (Vaccine Adverse Event Reporting System) para efectos adversos de vacunas COVID-19.
 
-### 1. **Síntomas Más Frecuentes por Fabricante** 🎯
+## 🏗️ Arquitectura Completa
 
-- Top 10 síntomas reportados para PFIZER, MODERNA y JANSSEN
-- Tasas de mortalidad y hospitalización por síntoma
-- Edad promedio de pacientes por síntoma
+### Componentes principales
 
-### 2. **Análisis de Severidad por Edad** 👥
+1. **📂 Datos**: Archivos CSV de VAERS (1.1 GB total)
+2. **🐻‍❄️ Polars ETL**: Procesamiento eficiente de datos
+3. **🌊 Apache Airflow**: Orquestación del pipeline
+4. **🐲 Apache Druid**: Base de datos analítica para consultas rápidas
+5. **🗄️ PostgreSQL**: Base de datos relacional para Superset
+6. **📈 Apache Superset**: Dashboards y visualizaciones
 
-- Correlación entre edad y resultados severos
-- Grupos: 0-17, 18-29, 30-49, 50-64, 65+
-- Tasas de hospitalización, muerte y visitas ER
+#### 🚀 ¿Por qué Polars en lugar de Spark?
 
-### 3. **Tiempo de Aparición de Síntomas** ⏰
+##### ✅ Ventajas de Polars para este proyecto
 
-- Tiempo promedio de aparición después de vacunación
-- Distribución temporal por tipo de síntoma
+- **Tamaño del dataset**: 1.1 GB es perfecto para Polars (puede manejar mucho más)
+- **Simplicidad**: API más intuitiva y fácil de debuggear
+- **Performance**: Extremadamente rápido para datasets de este tamaño
+- **Recursos**: No necesita un cluster completo como Spark
+- **Memoria**: Uso más eficiente de memoria RAM
+- **Configuración**: Setup mucho más simple
 
-### 4. **Distribución Geográfica** 🗺️
+##### ❌ Problemas que se evitan con Spark
 
-- Estados con mayor número de reportes
-- Análisis regional de severidad
+- Complejidad de configuración de cluster
+- Overhead innecesario para datasets < 10GB
+- Configuración compleja de memoria y cores
+- Dependencias Java pesadas
+- Debugging más complicado
 
-## 🚀 **INSTRUCCIONES DE USO**
+### Flujo de datos
 
-### 1. **Generar datos de ejemplo**
+```
+VAERSDATA.csv (919MB)     ─┐
+VAERSSYMPTOMS.csv (105MB) ─┤─► Polars ETL ─► JSON ─► Druid
+VAERSVAX.csv (80MB)       ─┘                 └─► CSV ─► PostgreSQL ─► Superset
+```
+
+## 📁 Estructura del Proyecto
+
+```
+adverse-effects-covid/
+├── 📊 data/                          # Datos CSV de VAERS
+│   ├── VAERSDATA.csv                 # Datos principales (919MB)
+│   ├── VAERSSYMPTOMS.csv            # Síntomas (105MB)
+│   └── VAERSVAX.csv                 # Vacunas (80MB)
+├── 🐻‍❄️ etl/
+│   └── etl_processor.py             # ETL principal con Polars (chunked)
+├── 🌊 dags/
+│   └── main_pipeline.py             # DAG principal del pipeline
+├── 📈 superset/                      # Scripts de Superset
+│   ├── dashboard_setup.py           # Configuración automática de dashboards
+│   ├── dataset_manager.py           # Gestión de datasets
+│   └── dashboard_validator.py       # Validación de dashboards
+├── 🐳 Docker:
+│   ├── docker-compose.yml           # Configuración Docker principal
+│   └── requirements-polars.txt      # Dependencias de Polars
+└── 📚 Documentación:
+    ├── README.md                    # Este archivo
+```
+
+## 🚀 Correr el proyecto
+
+### 1. Iniciar docker
 
 ```bash
-python generate_sample_data.py
+# Iniciar todos los servicios
+docker compose up -d
 ```
 
-### 2. **Iniciar todos los servicios**
+### 2. Acceder a los servicios
 
-```bash
-docker-compose up -d
-```
+- **🌊 Airflow**: <http://localhost:8080> (admin/admin)
+- **🐲 Druid**: <http://localhost:8888>
+- **📈 Superset**: <http://localhost:8088> (admin/admin)
 
-### 3. **Ejecutar pipeline en Airflow**
+## 📊 Charts Generados
 
-- 🌐 **Airflow**: http://localhost:8080 (admin/admin)
-- Activar DAG: `vaers_covid_analytics_pipeline`
+El pipeline genera 4 tipos de análisis:
 
-### 4. **Ver dashboards en Superset**
+### 1. 🔬 Reportes por Fabricante de Vacuna
 
-- 🌐 **Superset**: http://localhost:8088 (admin/admin)
+- **Objetivo**: Identificar la cantidad de reportes por marca de vacuna
+- **Métricas**: Total reportes, casos únicos, muertes, hospitalizaciones, tasas
+- **Archivo**: `symptoms_for_druid.json`, `symptoms_analysis.csv`
 
-## 📊 **URLs de Servicios**
+### 2. Top 15 Síntomas más reportados
 
-| Servicio        | URL                   | Credenciales |
-| --------------- | --------------------- | ------------ |
-| 🚁 **Airflow**  | http://localhost:8080 | admin/admin  |
-| 📊 **Superset** | http://localhost:8088 | admin/admin  |
-| 🗄️ **Druid**    | http://localhost:8888 | -            |
-| ⚡ **Spark**    | http://localhost:8084 | -            |
+- **Objetivo**: Analizar los síntomas más reportados
+- **Métricas**: Casos totales, muertes, hospitalizaciones, tasas de severidad
+- **Archivo**: `symptoms_for_druid.json`, `symptoms_analysis.csv`
 
-## 🗂️ **Estructura de Archivos**
+### 3. 📈 Hospitalizaciones por Grupo de Edad
 
-```
-📁 adverse-effects-covid/
-├── 📁 data/              # Datos CSV VAERS
-├── 📁 dags/              # DAGs Airflow
-├── 📁 spark/             # Scripts Spark
-├── 📄 docker-compose.yml # Configuración servicios
-├── 📄 generate_sample_data.py # Generador datos
-└── 📄 README.md          # Esta documentación
-```
+- **Objetivo**: Analizar severidad de efectos adversos por edad
+- **Grupos**: 0-17, 18-29, 30-49, 50-64, 65+
+- **Métricas**: Casos totales, muertes, hospitalizaciones, tasas de severidad
+- **Archivo**: `severity_for_druid.json`, `severity_analysis.csv`
 
-¡Pipeline listo para analizar efectos adversos de vacunas COVID-19! 🚀
+### 4. 🗺️ Distribución Geográfica por Estado
+
+- **Objetivo**: Análisis por estado
+- **Métricas**: Reportes totales, muertes, hospitalizaciones por estado
+- **Archivo**: `geographic_for_druid.json`, `geographic_analysis.csv`
+
+## 🐳 Servicios Docker
+
+### Servicios principales
+
+- **volume-init**: Inicializa volúmenes compartidos
+- **postgres**: Base de datos (Airflow + Superset + Druid metadata)
+- **airflow-webserver/scheduler**: Orquestación
+- **zookeeper**: Coordinación para Druid
+- **druid-coordinator/broker/historical/middlemanager/router**: Cluster Druid
+- **superset**: Dashboards y visualización
+- **monitor**: Monitoreo del sistema
+
+### Volúmenes compartidos
+
+- **shared_data**: Intercambio de datos entre servicios
+- **metadata_data**: Base de datos PostgreSQL
+- **druid_shared**: Datos compartidos de Druid
+
+## 🎯 Estado del Proyecto
+
+### ✅ Completado
+
+- **Pipeline completo funcionando** con Polars chunked ETL
+- **Arquitectura optimizada** con procesamiento por chunks (100k filas)
+- **Dashboards automáticos** con filtros de calidad de datos
+- **Limpieza de código** y estructura organizada
+- **Datos filtrados** solo fabricantes principales (PFIZER, MODERNA, JANSSEN)
+- **Estados geográficos válidos** sin datos "US" genéricos
+
+### 🎯 Métricas del Pipeline
+
+- **Procesamiento**: ~193 chunks en ~60 segundos
+- **Datos procesados**: 1.1GB → análisis filtrados
+- **Fabricantes**: 3 principales (PFIZER: 7149, MODERNA: 6589, JANSSEN: 3621 reportes)
+- **Estados**: 15 principales estados de EE.UU.
+- **Automatización completa**: DAG → ETL → Druid → Superset
+
+### 🔄 Optimizaciones Implementadas
+
+- **Chunked processing** para manejo eficiente de memoria
+- **Filtros de calidad** para síntomas y fabricantes
+- **Datos geográficos realistas** con distribución por estados
+- **Validación automática** de datasets en Superset
+- **Nomenclatura simplificada** de archivos y DAGs

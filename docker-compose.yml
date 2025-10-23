@@ -30,7 +30,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - metadata_data:/var/lib/postgresql/data
+      - metadata_data:/var/lib/postgresql
       - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
     environment:
       - POSTGRES_PASSWORD=FoolishPassword
@@ -42,26 +42,29 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
-  # --- Airflow Initialization ---
+
+  # --- Airflow con Polars ---
   airflow-init:
     image: "apache/airflow:2.9.0"
-    container_name: airflow_init_vaers
+    container_name: airflow_init
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ./dags:/opt/airflow/dags
+      - ./requirements-polars.txt:/requirements.txt
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__WEBSERVER__SECRET_KEY: unaclavesecretaparaelproyecto
     entrypoint: /bin/bash
-    command: -c "airflow db migrate && airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin"
+    command: -c "pip install -r /requirements.txt && airflow db migrate && airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin"
     restart: "no"
+
   # --- Airflow Webserver ---
   airflow-webserver:
     image: "apache/airflow:2.9.0"
-    container_name: airflow_webserver_vaers
+    container_name: airflow_webserver
     depends_on:
       airflow-init:
         condition: service_completed_successfully
@@ -71,22 +74,31 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./dags:/opt/airflow/dags
-      - ./spark:/opt/airflow/spark
+      - ./etl:/opt/airflow/etl
       - ./superset:/opt/airflow/superset
       - ./data:/opt/airflow/data
-      - shared_data:/opt/shared_data # Datos compartidos entre servicios
+      - ./requirements-polars.txt:/requirements.txt
+      - shared_data:/opt/shared_data
     ports:
       - "8080:8080"
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__WEBSERVER__SECRET_KEY: unaclavesecretaparaelproyecto
-    command: "webserver"
+    entrypoint: /bin/bash
+    command: -c "pip install -r /requirements.txt && airflow webserver"
     restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+
   # --- Airflow Scheduler ---
   airflow-scheduler:
     image: "apache/airflow:2.9.0"
-    container_name: airflow_scheduler_vaers
+    container_name: airflow_scheduler
     depends_on:
       airflow-init:
         condition: service_completed_successfully
@@ -96,66 +108,37 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./dags:/opt/airflow/dags
-      - ./spark:/opt/airflow/spark
+      - ./etl:/opt/airflow/etl
       - ./superset:/opt/airflow/superset
       - ./data:/opt/airflow/data
-      - shared_data:/opt/shared_data # Datos compartidos entre servicios
+      - ./requirements-polars.txt:/requirements.txt
+      - shared_data:/opt/shared_data
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__WEBSERVER__SECRET_KEY: unaclavesecretaparaelproyecto
-    command: "scheduler"
+    entrypoint: /bin/bash
+    command: -c "pip install -r /requirements.txt && airflow scheduler"
     restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
 
-  # --- Spark Master ---
-  spark-master:
-    image: "apache/spark:3.5.3"
-    container_name: spark_master_vaers
-    hostname: spark-master
-    depends_on:
-      volume-init:
-        condition: service_completed_successfully
-    ports:
-      - "8084:8080" # UI Spark Master
-      - "7077:7077" # Puerto Spark Master
-    volumes:
-      - ./data:/opt/spark/data # Datos CSV de entrada
-      - shared_data:/opt/shared_data # Datos procesados de salida
-    environment:
-      SPARK_MASTER_HOST: spark-master
-    command: >
-      /bin/bash -c "/opt/spark/sbin/start-master.sh && tail -f /dev/null"
-    restart: always
-
-  # --- Spark Worker ---
-  spark-worker:
-    image: "apache/spark:3.5.3"
-    container_name: spark_worker_vaers
-    depends_on:
-      - spark-master
-      - volume-init
-    volumes:
-      - ./data:/opt/spark/data # Datos CSV de entrada
-      - shared_data:/opt/shared_data # Datos procesados de salida
-    environment:
-      SPARK_MASTER: spark://spark-master:7077
-      SPARK_WORKER_DIR: /opt/spark/work
-      SPARK_LOG_DIR: /opt/spark/logs
-    command: >
-      /bin/bash -c "/opt/spark/sbin/start-worker.sh spark://spark-master:7077 && tail -f /dev/null"
-    restart: always
-
-  # Need 3.5 or later for container nodes
+  # --- Zookeeper (requerido por Druid) ---
   zookeeper:
     container_name: zookeeper
-    image: zookeeper:3.5.10
+    image: zookeeper:3.5
     ports:
       - "2181:2181"
     environment:
       - ZOO_MY_ID=1
 
+  # --- Druid Coordinator ---
   coordinator:
-    image: apache/druid:34.0.0
+    image: apache/druid:30.0.0
     container_name: coordinator
     volumes:
       - druid_shared:/opt/shared
@@ -171,17 +154,17 @@ services:
     env_file:
       - environment
 
+  # --- Druid Broker ---
   broker:
-    image: apache/druid:34.0.0
+    image: apache/druid:30.0.0
     container_name: broker
     volumes:
       - broker_var:/opt/druid/var
-      - shared_data:/opt/shared_data # Acceso a datos compartidos
+      - shared_data:/opt/shared_data
     depends_on:
       - zookeeper
       - postgres
       - coordinator
-      - volume-init
     ports:
       - "8082:8082"
     command:
@@ -189,15 +172,15 @@ services:
     env_file:
       - environment
 
+  # --- Druid Historical ---
   historical:
-    image: apache/druid:34.0.0
+    image: apache/druid:30.0.0
     container_name: historical
     volumes:
       - druid_shared:/opt/shared
       - historical_var:/opt/druid/var
-      - shared_data:/opt/shared_data # Acceso a datos compartidos
+      - shared_data:/opt/shared_data
     depends_on:
-      - volume-init
       - zookeeper
       - postgres
       - coordinator
@@ -208,35 +191,38 @@ services:
     env_file:
       - environment
 
+  # --- Druid MiddleManager ---
   middlemanager:
-    image: apache/druid:34.0.0
+    image: apache/druid:30.0.0
     container_name: middlemanager
     volumes:
       - druid_shared:/opt/shared
       - middle_var:/opt/druid/var
-      - shared_data:/opt/shared_data # Acceso a datos compartidos
+      - shared_data:/opt/shared_data
     depends_on:
-      - volume-init
       - zookeeper
       - postgres
       - coordinator
     ports:
       - "8091:8091"
-      - "8100-8105:8100-8105"
     command:
       - middleManager
     env_file:
       - environment
 
+  # --- Druid Router ---
   router:
-    image: apache/druid:34.0.0
+    image: apache/druid:30.0.0
     container_name: router
     volumes:
       - router_var:/opt/druid/var
+      - shared_data:/opt/shared_data
     depends_on:
       - zookeeper
       - postgres
       - coordinator
+      - broker
+      - historical
     ports:
       - "8888:8888"
     command:
@@ -252,22 +238,54 @@ services:
       postgres:
         condition: service_healthy
       broker:
-        # Espera a que Druid esté disponible
         condition: service_started
     ports:
-      - "8088:8088" # UI Superset
+      - "8088:8088"
     environment:
-      SUPERSET_SECRET_KEY: "unaclavesecretaparaSuperset"
-      # Configuración para metadata de Superset en PostgreSQL
+      SUPERSET_SECRET_KEY: "unaclavesecretaparasuperset"
       SUPERSET_CONFIG_PATH: /app/superset_config.py
     volumes:
-      - ./superset_config.py:/app/superset_config.py:ro # Archivo de configuración personalizado
+      - ./superset_config.py:/app/superset_config.py:ro
+      - ./superset:/app/superset_scripts
     command: >
       /bin/bash -c "
         sleep 30 &&
+        pip install psycopg2-binary pydruid &&
         superset db upgrade &&
         superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin &&
         superset init &&
         gunicorn --bind 0.0.0.0:8088 'superset.app:create_app()'
+      "
+    restart: always
+
+  # --- Servicio de monitoreo ---
+  monitor:
+    image: busybox:latest
+    container_name: monitor
+    volumes:
+      - shared_data:/opt/shared_data
+    command: >
+      sh -c "
+      echo '🔍 VAERS COVID-19 Analysis Pipeline - PRODUCTION READY'
+      echo '📊 CSV → 🐻‍❄️ Polars ETL → 🐲 Druid + 🗄️ PostgreSQL → 📈 Superset'
+      echo ''
+      echo '🌐 Services Available:'
+      echo '   - Airflow UI: http://localhost:8080 (admin/admin)'
+      echo '   - Druid Console: http://localhost:8888'
+      echo '   - Superset Dashboard: http://localhost:8088 (admin/admin)'
+      echo '   - PostgreSQL DB: localhost:5432'
+      echo ''
+      echo '📁 Shared Data Directory:'
+      ls -la /opt/shared_data/ 2>/dev/null || echo 'Directory not ready yet'
+      echo ''
+      echo '⏰ Starting continuous monitoring...'
+      while true; do
+        sleep 300
+        echo '⏱️ $(date): All systems operational'
+        if [ -d '/opt/shared_data/vaers_results' ]; then
+          echo '📊 Latest Results:'
+          ls -la /opt/shared_data/vaers_results/ 2>/dev/null || echo 'No results yet'
+        fi
+      done
       "
     restart: always

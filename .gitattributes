@@ -1,3 +1,4 @@
 data/VAERSDATA.csv filter=lfs diff=lfs merge=lfs -text
 data/VAERSSYMPTOMS.csv filter=lfs diff=lfs merge=lfs -text
 data/VAERSVAX.csv filter=lfs diff=lfs merge=lfs -text
+data/*.csv filter=lfs diff=lfs merge=lfs -text

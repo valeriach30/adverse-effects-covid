@@ -4,7 +4,7 @@
 # regarding copyright ownership.  The ASF licenses this file
 # to you under the Apache License, Version 2.0 (the
 # "License"); you may not use this file except in compliance
-# with the License.  You may obtain a copy of the License at
+# with the License.  You may obtain a copy of the License a
 #
 #   http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -37,13 +37,13 @@ class Config:
     # Habilitamos la funcionalidad de SQL Lab para consultas ad-hoc
     SQLLAB_ASYNC_TIME_LIMIT_SEC = 300
     SQLLAB_TIMEOUT = 300
-    
+
     # Configuración para trabajar con Druid
     ENABLE_PROXY_FIX = True
-    
+
     # Configuración de logging
     LOG_LEVEL = 'INFO'
-    
+
     # Configuración de funciones permitidas en SQL Lab
     PREVENT_UNSAFE_DB_CONNECTIONS = False
 

@@ -12,7 +12,9 @@ from helpers import (
     check_druid_connectivity,
     load_to_postgresql,
     refresh_superset_datasets,
-    setup_superset_dashboards
+    setup_superset_dashboards,
+    create_druid_ingestion_task,
+    cleanup_all_druid_datasources
 )
 
 # ======================================================= CONFIGURACIÓN DEL DAG ======================================================
@@ -88,135 +90,40 @@ postgres_load_task = PythonOperator(
     dag=dag
 )
 
-# 8. Ingestar datos chunked en Druid
-druid_symptoms_task = BashOperator(
+# 7.5. Limpiar datasources de Druid antes de ingesta
+cleanup_druid_task = PythonOperator(
+    task_id='cleanup_druid_datasources',
+    python_callable=lambda: cleanup_all_druid_datasources(),
+    dag=dag
+)
+
+# 8-10. Tareas de ingesta a Druid
+# 8-10. Tareas de ingesta a Druid (sin limpieza, ya se hace antes)
+druid_symptoms_task = create_druid_ingestion_task(
     task_id='ingest_chunked_symptoms_to_druid',
-    bash_command="""
-    echo "⏳ Verificando archivos para ingesta de síntomas..."
-    
-    # Verificar que los archivos existan
-    SPEC_FILE="/opt/shared_data/druid_ingestion_specs/symptoms_ingestion.json"
-    DATA_FILE="/opt/shared_data/vaers_results/chunked_symptoms_for_druid.json"
-    
-    if [ ! -f "$SPEC_FILE" ]; then
-        echo "❌ Archivo de especificación no encontrado: $SPEC_FILE"
-        exit 1
-    fi
-    
-    if [ ! -f "$DATA_FILE" ]; then
-        echo "❌ Archivo de datos no encontrado: $DATA_FILE"
-        exit 1
-    fi
-    
-    echo "✅ Archivos verificados, enviando tarea a Druid..."
-    
-    # Enviar tarea a Druid con manejo de errores
-    RESPONSE=$(curl -s -w "%{http_code}" -X POST "http://router:8888/druid/indexer/v1/task" \
-        -H "Content-Type: application/json" \
-        -d @"$SPEC_FILE")
-    
-    HTTP_CODE="${RESPONSE: -3}"
-    BODY="${RESPONSE%???}"
-    
-    echo "HTTP Code: $HTTP_CODE"
-    echo "Response: $BODY"
-    
-    if [ "$HTTP_CODE" -ne 200 ]; then
-        echo "❌ Error en ingesta de síntomas - HTTP $HTTP_CODE"
-        exit 1
-    fi
-    
-    echo "✅ Tarea de síntomas enviada exitosamente"
-    """,
-    dag=dag
+    ingestion_type='síntomas por fabricante',
+    spec_filename='symptoms_ingestion.json',
+    data_filename='chunked_symptoms_for_druid.json',
+    dag=dag,
+    sleep_seconds=0  # Primera tarea, sin espera
 )
 
-# 9. Ingestar análisis de severidad
-druid_severity_task = BashOperator(
+druid_severity_task = create_druid_ingestion_task(
     task_id='ingest_severity_to_druid',
-    bash_command="""
-    echo "⏳ Verificando archivos para ingesta de severidad..."
-    sleep 3
-    
-    # Verificar que los archivos existan
-    SPEC_FILE="/opt/shared_data/druid_ingestion_specs/severity_ingestion.json"
-    DATA_FILE="/opt/shared_data/vaers_results/severity_for_druid.json"
-    
-    if [ ! -f "$SPEC_FILE" ]; then
-        echo "❌ Archivo de especificación no encontrado: $SPEC_FILE"
-        exit 1
-    fi
-    
-    if [ ! -f "$DATA_FILE" ]; then
-        echo "❌ Archivo de datos no encontrado: $DATA_FILE"
-        exit 1
-    fi
-    
-    echo "✅ Archivos verificados, enviando tarea a Druid..."
-    
-    # Enviar tarea a Druid con manejo de errores
-    RESPONSE=$(curl -s -w "%{http_code}" -X POST "http://router:8888/druid/indexer/v1/task" \
-        -H "Content-Type: application/json" \
-        -d @"$SPEC_FILE")
-    
-    HTTP_CODE="${RESPONSE: -3}"
-    BODY="${RESPONSE%???}"
-    
-    echo "HTTP Code: $HTTP_CODE"
-    echo "Response: $BODY"
-    
-    if [ "$HTTP_CODE" -ne 200 ]; then
-        echo "❌ Error en ingesta de severidad - HTTP $HTTP_CODE"
-        exit 1
-    fi
-    
-    echo "✅ Tarea de severidad enviada exitosamente"
-    """,
-    dag=dag
+    ingestion_type='severidad por edad',
+    spec_filename='severity_ingestion.json',
+    data_filename='severity_for_druid.json',
+    dag=dag,
+    sleep_seconds=3  # Esperar 3 segundos para evitar sobrecarga
 )
 
-# 10. Ingestar análisis geográfico
-druid_geographic_task = BashOperator(
+druid_geographic_task = create_druid_ingestion_task(
     task_id='ingest_geographic_to_druid',
-    bash_command="""
-    echo "⏳ Verificando archivos para ingesta geográfica..."
-    sleep 3
-    
-    # Verificar que los archivos existan
-    SPEC_FILE="/opt/shared_data/druid_ingestion_specs/geographic_ingestion.json"
-    DATA_FILE="/opt/shared_data/vaers_results/geographic_for_druid.json"
-    
-    if [ ! -f "$SPEC_FILE" ]; then
-        echo "❌ Archivo de especificación no encontrado: $SPEC_FILE"
-        exit 1
-    fi
-    
-    if [ ! -f "$DATA_FILE" ]; then
-        echo "❌ Archivo de datos no encontrado: $DATA_FILE"
-        exit 1
-    fi
-    
-    echo "✅ Archivos verificados, enviando tarea a Druid..."
-    
-    # Enviar tarea a Druid con manejo de errores
-    RESPONSE=$(curl -s -w "%{http_code}" -X POST "http://router:8888/druid/indexer/v1/task" \
-        -H "Content-Type: application/json" \
-        -d @"$SPEC_FILE")
-    
-    HTTP_CODE="${RESPONSE: -3}"
-    BODY="${RESPONSE%???}"
-    
-    echo "HTTP Code: $HTTP_CODE"
-    echo "Response: $BODY"
-    
-    if [ "$HTTP_CODE" -ne 200 ]; then
-        echo "❌ Error en ingesta geográfica - HTTP $HTTP_CODE"
-        exit 1
-    fi
-    
-    echo "✅ Tarea geográfica enviada exitosamente"
-    """,
-    dag=dag
+    ingestion_type='distribución geográfica',
+    spec_filename='geographic_ingestion.json',
+    data_filename='geographic_for_druid.json',
+    dag=dag,
+    sleep_seconds=3  # Esperar 3 segundos para evitar sobrecarga
 )
 
 # 11. Refrescar datasets en Superset
@@ -256,13 +163,12 @@ check_data_task >> setup_directories_task >> quality_check_task
 quality_check_task >> polars_etl_task
 polars_etl_task >> [druid_connectivity_task, druid_prep_task, postgres_load_task]
 
-# IMPORTANTE: Verificar Druid antes de ingestar datos
-druid_connectivity_task >> [druid_symptoms_task, druid_severity_task, druid_geographic_task]
+# IMPORTANTE: Verificar Druid Y limpiar datasources antes de ingestar
+druid_connectivity_task >> cleanup_druid_task
+druid_prep_task >> cleanup_druid_task
 
-# IMPORTANTE: Druid después de que ETL Y preparación estén completos
-[druid_prep_task, polars_etl_task] >> druid_symptoms_task
-[druid_prep_task, polars_etl_task] >> druid_severity_task
-[druid_prep_task, polars_etl_task] >> druid_geographic_task
+# IMPORTANTE: Limpiar antes de ingestar datos
+cleanup_druid_task >> [druid_symptoms_task, druid_severity_task, druid_geographic_task]
 
 # Refresh datasets después de Druid
 [druid_symptoms_task, druid_severity_task, druid_geographic_task] >> refresh_datasets_task

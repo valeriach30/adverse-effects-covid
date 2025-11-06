@@ -117,7 +117,7 @@ class VAERSChunkedETL:
                     pl.col("died_flag").sum().alias("deaths"),
                     pl.col("hospital_flag").sum().alias("hospitalizations")
                 ]).with_columns([
-                    pl.lit(datetime.now().isoformat()).alias("__time")
+                    pl.lit(datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")).alias("__time")
                 ]).sort("total_reports", descending=True)
 
                 # Guardar análisis de síntomas
@@ -393,7 +393,7 @@ class VAERSChunkedETL:
                 (pl.col("deaths") + pl.col("hospitalizations")).alias("severe_cases"),
                 pl.lit(0).alias("er_visits"),  # Campo requerido por Druid spec
                 pl.col("manufacturer").alias("VAX_MANU_CLEAN"),  # Alias para compatibilidad
-                pl.lit(datetime.now().isoformat()).alias("__time")
+                pl.lit(datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")).alias("__time")
             ])
 
             self.save_analysis("severity", severity_df)

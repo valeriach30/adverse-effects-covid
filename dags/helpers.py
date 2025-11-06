@@ -99,8 +99,53 @@ def run_polars_etl():
 
 # ======================================================== FUNCIONES DE DRUID ========================================================
 
+# Función para generar comando de ingesta de Druid
+def generate_druid_ingestion_command(ingestion_type, spec_filename, data_filename):
+    """Generar comando bash parametrizado para ingesta de Druid"""
+    return f"""
+    echo "⏳ Verificando archivos para ingesta de {ingestion_type}..."
+    
+    # Configuración de archivos
+    SPEC_FILE="/opt/shared_data/druid_ingestion_specs/{spec_filename}"
+    DATA_FILE="/opt/shared_data/vaers_results/{data_filename}"
+    
+    # Verificar que los archivos existan
+    if [ ! -f "$SPEC_FILE" ]; then
+        echo "❌ Archivo de especificación no encontrado: $SPEC_FILE"
+        exit 1
+    fi
+    
+    if [ ! -f "$DATA_FILE" ]; then
+        echo "❌ Archivo de datos no encontrado: $DATA_FILE"
+        exit 1
+    fi
+    
+    echo "✅ Archivos verificados, enviando tarea a Druid..."
+    
+    # Enviar tarea a Druid con manejo de errores
+    RESPONSE=$(curl -s -w "%{{http_code}}" -X POST "http://router:8888/druid/indexer/v1/task" \\
+        -H "Content-Type: application/json" \\
+        -d @"$SPEC_FILE")
+    
+    HTTP_CODE="${{RESPONSE: -3}}"
+    BODY="${{RESPONSE%???}}"
+    
+    echo "📊 HTTP Code: $HTTP_CODE"
+    echo "📋 Response: $BODY"
+    
+    # Validar respuesta
+    if [ "$HTTP_CODE" -ne 200 ]; then
+        echo "❌ Error en ingesta de {ingestion_type} - HTTP $HTTP_CODE"
+        echo "💡 Revisar conectividad con Druid y formato de archivos"
+        exit 1
+    fi
+    
+    echo "✅ Tarea de {ingestion_type} enviada exitosamente"
+    """
+
 # Función para generar especificaciones de Druid
 def make_druid_spec(filename, data_source, dimensions, metrics):
+    """Generar especificación de ingesta para Druid con reemplazo de datos"""
     return {
         "type": "index_parallel",
         "spec": {
@@ -111,15 +156,33 @@ def make_druid_spec(filename, data_source, dimensions, metrics):
                     "baseDir": VAERS_RESULTS_DIR,
                     "filter": filename
                 },
-                "inputFormat": {"type": "json"}
+                "inputFormat": {"type": "json"},
+                # Configurar para reemplazar datos existentes
+                "appendToExisting": False
             },
-            "tuningConfig": {"type": "index_parallel", "partitionsSpec": {"type": "dynamic"}},
+            "tuningConfig": {
+                "type": "index_parallel", 
+                "partitionsSpec": {"type": "hashed", "numShards": 1},
+                # Forzar reemplazo de segmentos - compatible con hashed partitions
+                "forceGuaranteedRollup": True
+            },
             "dataSchema": {
                 "dataSource": data_source,
-                "timestampSpec": {"column": "__time", "format": "iso"},
+                "timestampSpec": {
+                    "column": "__time", 
+                    "format": "iso",
+                    # Usar timestamp actual si falta
+                    "missingValue": "1970-01-01T00:00:00Z"
+                },
                 "dimensionsSpec": {"dimensions": dimensions},
                 "metricsSpec": metrics,
-                "granularitySpec": {"type": "uniform", "segmentGranularity": "DAY", "queryGranularity": "NONE"}
+                "granularitySpec": {
+                    "type": "uniform", 
+                    "segmentGranularity": "DAY", 
+                    "queryGranularity": "NONE",
+                    # Configurar intervalo para datos actuales
+                    "rollup": False
+                }
             }
         }
     }
@@ -215,7 +278,128 @@ def check_druid_connectivity():
             print(f"⏳ Esperando {retry_delay}s antes del siguiente intento...")
             time.sleep(retry_delay)
     
-    raise Exception("❌ No se pudo conectar con Druid después de múltiples intentos")
+        raise Exception("❌ No se pudo conectar con Druid después de múltiples intentos")
+
+def cleanup_druid_datasource(datasource_name):
+    """Limpiar datasource existente en Druid para evitar datos obsoletos"""
+    
+    print(f"🧹 Limpiando datasource existente: {datasource_name}")
+    
+    try:
+        # Obtener información del datasource
+        datasource_url = f"http://router:8888/druid/coordinator/v1/datasources/{datasource_name}"
+        response = requests.get(datasource_url, timeout=10)
+        
+        if response.status_code == 200:
+            print(f"📋 Datasource {datasource_name} existe, marcando para limpieza...")
+            
+            # Deshabilitar datasource
+            disable_url = f"http://router:8888/druid/coordinator/v1/datasources/{datasource_name}"
+            disable_response = requests.delete(disable_url, timeout=30)
+            
+            if disable_response.status_code in [200, 202]:
+                print(f"✅ Datasource {datasource_name} deshabilitado exitosamente")
+            else:
+                print(f"⚠️ No se pudo deshabilitar {datasource_name}: HTTP {disable_response.status_code}")
+        else:
+            print(f"ℹ️ Datasource {datasource_name} no existe, continuando...")
+            
+    except Exception as e:
+        print(f"⚠️ Error limpiando datasource {datasource_name}: {e}")
+        # No fallar el pipeline por esto
+    
+    # Esperar un momento para que Druid procese la limpieza
+    time.sleep(5)
+
+def cleanup_all_druid_datasources():
+    """Limpiar todos los datasources de VAERS en Druid antes de nueva ingesta"""
+    
+    datasources_to_cleanup = [
+        "vaers_symptoms_by_manufacturer",
+        "vaers_severity_by_age", 
+        "vaers_geographic_distribution"
+    ]
+    
+    print("🗑️ Iniciando limpieza de datasources de Druid...")
+    print(f"📅 Fecha de ejecución: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    for datasource in datasources_to_cleanup:
+        cleanup_druid_datasource(datasource)
+    
+    print("✅ Limpieza de datasources completada")
+    return "Datasources de Druid limpiados exitosamente"
+
+def create_druid_ingestion_task(task_id, ingestion_type, spec_filename, data_filename, dag, datasource_name=None, sleep_seconds=0):
+    """Factory function para crear tareas de ingesta de Druid parametrizadas con limpieza"""
+    from airflow.operators.bash_operator import BashOperator
+    
+    # Generar comando con sleep opcional
+    sleep_cmd = f"sleep {sleep_seconds}\n    " if sleep_seconds > 0 else ""
+    
+    # Comando de limpieza opcional si se proporciona datasource_name
+    cleanup_cmd = ""
+    if datasource_name:
+        cleanup_cmd = f"""
+    echo "🧹 Limpiando datasource existente: {datasource_name}..."
+    curl -s -X DELETE "http://router:8888/druid/coordinator/v1/datasources/{datasource_name}" || echo "⚠️ Datasource no existía"
+    sleep 3
+    """
+    
+    bash_command = f"""
+    {sleep_cmd}echo "⏳ Verificando archivos para ingesta de {ingestion_type}..."
+    
+    # Configuración de archivos
+    SPEC_FILE="/opt/shared_data/druid_ingestion_specs/{spec_filename}"
+    DATA_FILE="/opt/shared_data/vaers_results/{data_filename}"
+    
+    # Verificar que los archivos existan
+    if [ ! -f "$SPEC_FILE" ]; then
+        echo "❌ Archivo de especificación no encontrado: $SPEC_FILE"
+        exit 1
+    fi
+    
+    if [ ! -f "$DATA_FILE" ]; then
+        echo "❌ Archivo de datos no encontrado: $DATA_FILE"
+        exit 1
+    fi
+    
+    echo "✅ Archivos verificados para {ingestion_type}"
+    echo "📅 Timestamp en datos: $(head -1 "$DATA_FILE" | grep -o '"__time":"[^"]*"' || echo 'No encontrado')"
+    
+    {cleanup_cmd}
+    
+    echo "🚀 Enviando tarea a Druid..."
+    
+    # Enviar tarea a Druid con manejo de errores mejorado
+    RESPONSE=$(curl -s -w "%{{http_code}}" -X POST "http://router:8888/druid/indexer/v1/task" \\
+        -H "Content-Type: application/json" \\
+        -d @"$SPEC_FILE")
+    
+    HTTP_CODE="${{RESPONSE: -3}}"
+    BODY="${{RESPONSE%???}}"
+    
+    echo "📊 HTTP Code: $HTTP_CODE"
+    echo "📋 Response Body: $BODY"
+    
+    # Validar respuesta
+    if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 202 ]; then
+        echo "✅ Tarea de {ingestion_type} enviada exitosamente"
+        echo "🆔 Task ID: $(echo "$BODY" | grep -o '"task":"[^"]*"' | cut -d'"' -f4)"
+    else
+        echo "❌ Error en ingesta de {ingestion_type} - HTTP $HTTP_CODE"
+        echo "💡 Revisar conectividad con Druid y formato de archivos"
+        echo "🔍 Response completo: $BODY"
+        exit 1
+    fi
+    """
+    
+    return BashOperator(
+        task_id=task_id,
+        bash_command=bash_command,
+        dag=dag
+    )
+
+# ===== FUNCIONES DE POSTGRESQL =====
 
 # ===================================================== FUNCIONES DE POSTGRESQL ======================================================
 

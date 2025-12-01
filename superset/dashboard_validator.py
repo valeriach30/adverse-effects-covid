@@ -4,7 +4,7 @@ Script de verificación final - Confirmar que dashboard funciona correctamente
 """
 
 import json
-import urllib.reques
+import urllib.request
 from http.cookiejar import CookieJar
 
 def verify_complete_dashboard():

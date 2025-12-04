@@ -710,8 +710,7 @@ adverse-effects-covid/
 │       └── Crea schemas y usuarios      #   └─ airflow, superset, marquez
 │
 ├── 📚 Documentación
-│   ├── README.md                         # Documentación principal
-│   ├── ARQUITECTURA.md                   # Este archivo (documentación detallada)
+│   └── README.md                         # Documentación principal
 │
 └── 🔧 Archivos de Configuración
     ├── .gitignore                        # Archivos excluidos de Git

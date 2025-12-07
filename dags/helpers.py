@@ -437,6 +437,29 @@ def load_to_postgresql():
 
 # ======================================================= FUNCIONES DE SUPERSET ======================================================
 
+# Función para crear datasets en Superset (NUEVA - debe ir antes de refrescar)
+def create_superset_datasets():
+    print("📊 Creando datasets en Superset...")
+    time.sleep(10)
+
+    try:
+        # Ejecutar script de creación de datasets
+        result = subprocess.run([
+            'python', '/opt/airflow/superset/dataset_creator.py'
+        ], capture_output=True, text=True, timeout=120)
+
+        if result.returncode == 0:
+            print("✅ Datasets creados exitosamente")
+            print(result.stdout)
+            return "🎉 Datasets creados correctamente"
+        else:
+            print(f"❌ Error creando datasets: {result.stderr}")
+            return "⚠️ Error creando datasets"
+        
+    except Exception as e:
+        print(f"❌ Error ejecutando creación de datasets: {e}")
+        return "⚠️ Error en creación de datasets"
+
 # Función para refrescar datasets en Superset
 # Sirve para sincronizar columnas con Druid
 def refresh_superset_datasets():

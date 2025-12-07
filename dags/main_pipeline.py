@@ -11,6 +11,7 @@ from helpers import (
     prepare_druid_ingestion,
     check_druid_connectivity,
     load_to_postgresql,
+    create_superset_datasets,
     refresh_superset_datasets,
     setup_superset_dashboards,
     create_druid_ingestion_task,
@@ -133,6 +134,13 @@ refresh_datasets_task = PythonOperator(
     dag=dag
 )
 
+# 11.5 NUEVA TAREA: Crear datasets en Superset (DEBE IR DESPUÉS de cargar a PostgreSQL)
+create_datasets_task = PythonOperator(
+    task_id='create_superset_datasets',
+    python_callable=create_superset_datasets,
+    dag=dag
+)
+
 # 12. Configurar Superset dashboards
 superset_setup_task = PythonOperator(
     task_id='setup_superset_dashboards',
@@ -172,6 +180,12 @@ cleanup_druid_task >> [druid_symptoms_task, druid_severity_task, druid_geographi
 
 # Refresh datasets después de Druid
 [druid_symptoms_task, druid_severity_task, druid_geographic_task] >> refresh_datasets_task
+
+# Crear datasets en Superset después de cargar a PostgreSQL
+postgres_load_task >> create_datasets_task
+
+# Refrescar después de crear datasets
+create_datasets_task >> refresh_datasets_task
 
 # Superset después de PostgreSQL Y refresh de datasets
 [postgres_load_task, refresh_datasets_task] >> superset_setup_task

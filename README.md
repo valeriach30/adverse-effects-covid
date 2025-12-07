@@ -904,16 +904,79 @@ sequenceDiagram
 - 16 GB RAM mínimo (recomendado: 32 GB)
 - 20 GB espacio en disco
 - macOS, Linux o Windows con WSL2
+- Git LFS (para descargar archivos grandes)
 ```
 
-### Paso 1: Clonar Repositorio
+### Paso 1: Instalar Git LFS
+
+Git LFS (Large File Storage) es necesario para descargar los archivos CSV de datos (1.1 GB total).
+
+**En Ubuntu/Debian:**
+
+```bash
+curl -s https://packagecloud.io/install/repositories/github/git-lfs/script.deb.sh | sudo bash
+sudo apt-get install git-lfs
+git lfs install
+```
+
+**En macOS:**
+
+```bash
+brew install git-lfs
+git lfs install
+```
+
+**En Windows:**
+
+```bash
+# Descargar desde https://github.com/git-lfs/git-lfs/releases
+# O usar chocolatey:
+choco install git-lfs
+git lfs install
+```
+
+**Verificar instalación:**
+
+```bash
+git lfs --version  # Debería mostrar: git-lfs/3.x.x
+```
+
+### Paso 2: Clonar Repositorio
 
 ```bash
 git clone https://github.com/valeriach30/adverse-effects-covid.git
 cd adverse-effects-covid
 ```
 
-### Paso 2: Iniciar Sistema
+### Paso 3: Descargar Archivos de Datos
+
+Los archivos CSV están almacenados en Git LFS. Para descargarlos:
+
+```bash
+# Descargar todos los archivos LFS
+git lfs pull
+
+# O específicamente los datos
+git lfs pull --include="data/*.csv"
+
+# Verificar que los archivos se descargaron (deben pesar ~1.1 GB total)
+ls -lh data/
+# Debería mostrar:
+# -rw-r--r--  919M Dec  7 10:30 VAERSDATA.csv
+# -rw-r--r--  105M Dec  7 10:31 VAERSSYMPTOMS.csv
+# -rw-r--r--   80M Dec  7 10:32 VAERSVAX.csv
+```
+
+**⚠️ Importante**: Sin Git LFS, los archivos CSV serán placeholders vacíos (~130 bytes) y el pipeline fallará. Si los archivos son muy pequeños:
+
+```bash
+# Reconectar y descargar correctamente
+git lfs pull --reinitialize
+git checkout .
+git lfs pull
+```
+
+### Paso 4: Iniciar Sistema
 
 ```bash
 # Iniciar todos los servicios
@@ -926,7 +989,7 @@ docker compose ps
 docker compose logs -f airflow-init  # Esperar mensaje "Airflow initialized"
 ```
 
-### Paso 3: Acceder a Interfaces
+### Paso 5: Acceder a Interfaces
 
 | Servicio      | URL                   | Credenciales  |
 | ------------- | --------------------- | ------------- |
@@ -934,7 +997,7 @@ docker compose logs -f airflow-init  # Esperar mensaje "Airflow initialized"
 | Druid Console | http://localhost:8888 | -             |
 | Superset      | http://localhost:8088 | admin / admin |
 
-### Paso 4: Ejecutar Pipeline
+### Paso 6: Ejecutar Pipeline
 
 Desde la interfaz web de Airflow:
 
@@ -948,7 +1011,7 @@ Desde la interfaz web de Airflow:
 6. Click en el botón **▶️ Play** en el lado derecho del DAG
 7. Seleccionar **Trigger DAG** para iniciar la ejecución
 
-### Paso 5: Monitorear la Ejecución
+### Paso 7: Monitorear la Ejecución
 
 Una vez iniciado el pipeline, se puede monitorear su progreso:
 

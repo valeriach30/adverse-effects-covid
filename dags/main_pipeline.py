@@ -11,9 +11,7 @@ from helpers import (
     prepare_druid_ingestion,
     check_druid_connectivity,
     load_to_postgresql,
-    create_superset_datasets,
-    refresh_superset_datasets,
-    setup_superset_dashboards,
+    setup_superset_complete,
     create_druid_ingestion_task,
     cleanup_all_druid_datasources
 )
@@ -127,24 +125,10 @@ druid_geographic_task = create_druid_ingestion_task(
     sleep_seconds=3  # Esperar 3 segundos para evitar sobrecarga
 )
 
-# 11. Refrescar datasets en Superset
-refresh_datasets_task = PythonOperator(
-    task_id='refresh_superset_datasets',
-    python_callable=refresh_superset_datasets,
-    dag=dag
-)
-
-# 11.5 NUEVA TAREA: Crear datasets en Superset (DEBE IR DESPUÉS de cargar a PostgreSQL)
-create_datasets_task = PythonOperator(
-    task_id='create_superset_datasets',
-    python_callable=create_superset_datasets,
-    dag=dag
-)
-
-# 12. Configurar Superset dashboards
+# 11. Configurar Superset COMPLETO (DB + Datasets + Dashboard) - UN SOLO PASO
 superset_setup_task = PythonOperator(
-    task_id='setup_superset_dashboards',
-    python_callable=setup_superset_dashboards,
+    task_id='setup_superset_complete',
+    python_callable=setup_superset_complete,
     dag=dag
 )
 
@@ -178,17 +162,8 @@ druid_prep_task >> cleanup_druid_task
 # IMPORTANTE: Limpiar antes de ingestar datos
 cleanup_druid_task >> [druid_symptoms_task, druid_severity_task, druid_geographic_task]
 
-# Refresh datasets después de Druid
-[druid_symptoms_task, druid_severity_task, druid_geographic_task] >> refresh_datasets_task
-
-# Crear datasets en Superset después de cargar a PostgreSQL
-postgres_load_task >> create_datasets_task
-
-# Refrescar después de crear datasets
-create_datasets_task >> refresh_datasets_task
-
-# Superset después de PostgreSQL Y refresh de datasets
-[postgres_load_task, refresh_datasets_task] >> superset_setup_task
+# Configurar Superset después de PostgreSQL Y tareas de Druid
+[postgres_load_task, druid_symptoms_task, druid_severity_task, druid_geographic_task] >> superset_setup_task
 
 # Verificación final después de todo
 superset_setup_task >> verification_task

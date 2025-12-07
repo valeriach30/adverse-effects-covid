@@ -437,75 +437,44 @@ def load_to_postgresql():
 
 # ======================================================= FUNCIONES DE SUPERSET ======================================================
 
-# Función para crear datasets en Superset (NUEVA - debe ir antes de refrescar)
-def create_superset_datasets():
-    print("📊 Creando datasets en Superset...")
-    time.sleep(10)
+# Función UNIFICADA para configurar TODO Superset en un solo paso
+def setup_superset_complete():
+    """
+    Configura COMPLETAMENTE Superset en un solo paso:
+    - Conexión DB PostgreSQL
+    - Datasets VAERS (crea o refresca)
+    - Dashboard con gráficos
+    """
+    print("🚀 Configuración completa de Superset...")
+    time.sleep(20)  # Esperar a que Superset esté listo
 
     try:
-        # Ejecutar script de creación de datasets
+        # Ejecutar script unificado de configuración completa
         result = subprocess.run([
-            'python', '/opt/airflow/superset/dataset_creator.py'
-        ], capture_output=True, text=True, timeout=120)
-
-        if result.returncode == 0:
-            print("✅ Datasets creados exitosamente")
-            print(result.stdout)
-            return "🎉 Datasets creados correctamente"
-        else:
-            print(f"❌ Error creando datasets: {result.stderr}")
-            return "⚠️ Error creando datasets"
-        
-    except Exception as e:
-        print(f"❌ Error ejecutando creación de datasets: {e}")
-        return "⚠️ Error en creación de datasets"
-
-# Función para refrescar datasets en Superset
-# Sirve para sincronizar columnas con Druid
-def refresh_superset_datasets():
-    print("🔄 Refrescando datasets en Superset...")
-    time.sleep(10)
-
-    try:
-        # Ejecutar script de refresh
-        result = subprocess.run([
-            'python', '/opt/airflow/superset/dataset_manager.py'
-        ], capture_output=True, text=True, timeout=120)
-
-        if result.returncode == 0:
-            print("✅ Datasets refrescados exitosamente")
-            print(result.stdout)
-            return "🎉 Datasets refrescados correctamente"
-        else:
-            print(f"❌ Error refrescando datasets: {result.stderr}")
-            return "⚠️ Error refrescando datasets"
-        
-    except Exception as e:
-        print(f"❌ Error ejecutando refresh: {e}")
-        return "⚠️ Error en refresh de datasets"
-
-# Función para configurar los dashboards en Superset
-def setup_superset_dashboards():
-    print("⏳ Esperando a que Superset esté disponible...")
-    time.sleep(30)
-
-    try:
-        # Ejecutar script de configuración de dashboard
-        result = subprocess.run([
-            'python', '/opt/airflow/superset/dashboard_setup.py'
+            'python', '/opt/airflow/superset/complete_setup.py'
         ], capture_output=True, text=True, timeout=300)
 
-        if result.returncode == 0:
-            print("✅ Dashboards de Superset configurados exitosamente")
+        # Siempre imprimir stdout
+        if result.stdout:
+            print("📋 Salida:")
             print(result.stdout)
-            return "🎉 Dashboards configurados correctamente"
+        
+        if result.stderr:
+            print("⚠️ Errores/Warnings:")
+            print(result.stderr)
+
+        if result.returncode == 0:
+            print("✅ Superset configurado exitosamente!")
+            return "🎉 Superset configurado correctamente"
         else:
-            print(f"❌ Error configurando dashboards: {result.stderr}")
-            raise Exception(f"Error en configuración de Superset: {result.stderr}")
+            print(f"❌ Script terminó con código de error: {result.returncode}")
+            raise Exception(f"Error configurando Superset. Código: {result.returncode}")
 
     except subprocess.TimeoutExpired:
-        print("⏰ Timeout configurando Superset")
+        print("⏰ Timeout configurando Superset (>5 minutos)")
         raise
     except Exception as e:
         print(f"❌ Error ejecutando configuración de Superset: {e}")
+        import traceback
+        traceback.print_exc()
         raise

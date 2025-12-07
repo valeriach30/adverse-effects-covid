@@ -96,7 +96,7 @@ graph TB
     end
 
     subgraph "🌊 ORQUESTACIÓN"
-        AIRFLOW[Apache Airflow<br/>13 tareas<br/>:8080]
+        AIRFLOW[Apache Airflow<br/>11 tareas<br/>:8080]
     end
 
     subgraph "🐻‍❄️ PROCESAMIENTO"
@@ -324,7 +324,7 @@ dashboard_config = {
 
 ### 1. 🌊 Apache Airflow - Orquestador del Pipeline
 
-**Tareas del DAG** (13 en total):
+**Tareas del DAG** (11 en total):
 
 1. **check_data_files**: Valida existencia de los CSV del VAERS
 2. **setup_shared_directories**: Crea directorios de trabajo
@@ -337,8 +337,7 @@ dashboard_config = {
 9. **ingest_symptoms_to_druid**: Ingesta síntomas
 10. **ingest_severity_to_druid**: Ingesta severidad
 11. **ingest_geographic_to_druid**: Ingesta geografía
-12. **refresh_superset_datasets**: Sincroniza schemas
-13. **setup_superset_dashboards**: Crea visualizaciones
+12. **setup_superset_complete**: Configura Superset completo (DB + Datasets + Dashboard)
 
 ---
 
@@ -564,11 +563,11 @@ severity_analysis = df.group_by(["age_group", "manufacturer"]).agg([
 
 ### 4. 📈 Apache Superset - Plataforma de Visualización
 
-**Configuración Programática**:
+**Configuración Programática Unificada**:
 
 ```python
-# superset/dashboard_setup.py
-def build_complete_vaers_dashboard():
+# superset/complete_setup.py - Script unificado que hace todo
+def setup_superset_complete():
     # 1. Autenticación
     login_response = requests.post(
         f"{base_url}/api/v1/security/login",
@@ -641,8 +640,7 @@ adverse-effects-covid/
 │   │   ├── prepare_druid_ingestion()    #   └─ Genera specs
 │   │   ├── cleanup_druid_datasources()  #   └─ Limpia Druid
 │   │   ├── ingest_*_to_druid()          #   └─ Ingesta datos
-│   │   ├── refresh_superset_datasets()  #   └─ Sincroniza schemas
-│   │   └── setup_superset_dashboards()  #   └─ Crea visualizaciones
+│   │   └── setup_superset_complete()    #   └─ Configura Superset (TODO)
 │   │
 │   └── helpers.py                        # Funciones auxiliares
 │       ├── check_required_files()        #   └─ Validación de archivos
@@ -650,7 +648,7 @@ adverse-effects-covid/
 │       ├── make_druid_spec()             #   └─ Generador de specs JSON
 │       ├── cleanup_druid_datasource()    #   └─ Limpieza de datos
 │       ├── load_to_postgresql()          #   └─ Carga a PostgreSQL
-│       └── refresh_superset_datasets()   #   └─ Actualiza metadata
+│       └── setup_superset_complete()     #   └─ Setup unificado Superset
 │
 ├── 🐻‍❄️ etl/                             # Procesamiento con Polars
 │   └── etl_processor.py                 # Pipeline ETL principal
@@ -662,16 +660,16 @@ adverse-effects-covid/
 │           └── generate_analyses()      #   └─ Genera agregaciones
 │
 ├── 📈 superset/                          # Scripts de visualización
-│   ├── dashboard_setup.py               # Creación automática de dashboards
-│   │   └── build_complete_vaers_dashboard()
+│   ├── complete_setup.py                # Setup COMPLETO unificado
+│   │   └── setup_superset_complete()
+│   │       ├── Verificar disponibilidad #   └─ GET /health
 │   │       ├── Autenticación JWT        #   └─ Login API
+│   │       ├── Crear conexión DB        #   └─ POST /api/v1/database
+│   │       ├── Crear datasets (3)       #   └─ POST /api/v1/dataset
+│   │       ├── Refrescar datasets       #   └─ PUT /api/v1/dataset/{id}/refresh
 │   │       ├── Crear dashboard          #   └─ POST /api/v1/dashboard
 │   │       ├── Crear gráficos (4)       #   └─ POST /api/v1/chart
 │   │       └── Actualizar layout        #   └─ PUT /api/v1/dashboard/{id}
-│   │
-│   ├── dataset_manager.py               # Gestión de datasets
-│   │   └── refresh_superset_datasets()
-│   │       └── Sincroniza schemas       #   └─ PUT /api/v1/dataset/{id}/refresh
 │   │
 │   └── dashboard_validator.py           # Validación post-deployment
 │       └── verify_complete_dashboard()
@@ -855,20 +853,24 @@ sequenceDiagram
     participant PostgreSQL
     participant Druid
 
-    Airflow->>Superset: refresh_superset_datasets()
-
-    loop Para cada dataset VAERS
-        Superset->>PostgreSQL: GET schema de tabla
-        PostgreSQL-->>Superset: Columnas y tipos
-        Superset->>Superset: Actualizar metadata interna
-    end
-
-    Superset-->>Airflow: ✅ 3 datasets sincronizados
-
-    Airflow->>Superset: setup_superset_dashboards()
+    Airflow->>Superset: setup_superset_complete()
+    Note over Superset: Script unificado - hace TODO en un paso
 
     Superset->>Superset: POST /api/v1/security/login
     Superset-->>Superset: JWT token
+
+    Superset->>Superset: POST /api/v1/database/
+    Note over Superset: Crear conexión PostgreSQL si no existe
+    Superset-->>Superset: database_id
+
+    loop Para cada tabla VAERS (3)
+        Superset->>Superset: POST /api/v1/dataset/
+        Note over Superset: Crear dataset (o buscar si existe)
+        Superset-->>Superset: dataset_id
+        
+        Superset->>Superset: PUT /api/v1/dataset/{id}/refresh
+        Note over Superset: Refrescar schema de dataset
+    end
 
     Superset->>Superset: POST /api/v1/dashboard/
     Note over Superset: Crear dashboard vacío
@@ -885,7 +887,7 @@ sequenceDiagram
     Superset->>Superset: PUT /api/v1/dashboard/{id}
     Note over Superset: Actualizar position_json con layout
 
-    Superset-->>Airflow: ✅ Dashboard publicado
+    Superset-->>Airflow: ✅ Todo configurado
 
     Note over Superset,Druid: Dashboard listo para consultas
     Superset->>Druid: SELECT SUM(total_reports) FROM vaers_symptoms...
@@ -1018,7 +1020,7 @@ Una vez iniciado el pipeline, se puede monitorear su progreso:
 1. **Ver el progreso en tiempo real:**
 
    - En Airflow UI, click en el nombre del DAG `main_pipeline`
-   - Hay un gráfico con las 13 tareas del pipeline
+   - Hay un gráfico con las 11 tareas del pipeline
 
 2. **Ver logs de una tarea específica:**
 

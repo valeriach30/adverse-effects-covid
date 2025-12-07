@@ -1070,8 +1070,7 @@ open http://localhost:8088
 | prepare_druid_ingestion   | 0.00s          | Genera 3 specs JSON          |
 | load_to_postgresql        | 0.25s          | Carga 3 tablas               |
 | cleanup_druid_datasources | 15.32s         | Elimina segmentos antiguos   |
-| refresh_superset_datasets | 14.93s         | Sincroniza schemas           |
-| setup_superset_dashboards | 30.46s         | 4 gráficos via API           |
+| setup_superset_complete   | 44.93s         | Setup superset               |
 | **TOTAL**                 | **~2 minutos** | Pipeline completo            |
 
 ---

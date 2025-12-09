@@ -867,7 +867,7 @@ sequenceDiagram
         Superset->>Superset: POST /api/v1/dataset/
         Note over Superset: Crear dataset (o buscar si existe)
         Superset-->>Superset: dataset_id
-        
+
         Superset->>Superset: PUT /api/v1/dataset/{id}/refresh
         Note over Superset: Refrescar schema de dataset
     end
@@ -1049,6 +1049,25 @@ open http://localhost:8088
 ---
 
 ## 📊 Métricas de Rendimiento
+
+### Entorno de Pruebas
+
+**Hardware:**
+
+- **Modelo:** MacBook Pro
+- **Procesador:** Apple M3 Pro (12 núcleos)
+- **RAM:** 18 GB
+- **Almacenamiento:** SSD
+
+**Software:**
+
+- **Sistema Operativo:** macOS Sequoia 15.1
+- **Docker Desktop:** 4.0+
+- **Docker Compose:** v2
+
+**Nota:** Los tiempos de ejecución pueden variar según las especificaciones del hardware.
+
+---
 
 ### Volúmenes de Datos Procesados
 
